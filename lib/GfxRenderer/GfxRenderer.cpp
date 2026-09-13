@@ -642,6 +642,18 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
               }
             }
           }
+          // セルに収まらないディセンダの続き（renderBuiltinCjkGlyph と同じ）
+          if (const uint8_t* descender = CjkUiFont20::getCjkUiDescender(cp)) {
+            for (int row = 0; row < CjkUiFont20::CJK_UI_DESCENDER_ROWS; row++) {
+              for (uint8_t glyphX = 0; glyphX < glyphWidth; glyphX++) {
+                const int byteIndex = row * bytesPerRow + (glyphX / 8);
+                const uint8_t bitIndex = 7 - (glyphX % 8);
+                if ((pgm_read_byte(&descender[byteIndex]) >> bitIndex) & 1) {
+                  drawPixel(xPos + glyphX, y + height + row, black);
+                }
+              }
+            }
+          }
           xPos += advanceWidth;
           rendered = true;
         }
@@ -2859,6 +2871,21 @@ void GfxRenderer::renderBuiltinCjkGlyph(const uint32_t cp, int* x, const int y, 
         const uint8_t byte = pgm_read_byte(&bitmap[byteIndex]);
         if ((byte >> bitIndex) & 1) {
           drawPixel(*x + glyphX, screenY, pixelState);
+        }
+      }
+    }
+
+    // g p y Q など、ベースラインより下が 20 行のセルに収まらない字の続き。
+    // 該当は36字だけなので疎テーブルで持っている（cjk_ui_font_20.h）。
+    if (const uint8_t* descender = CjkUiFont20::getCjkUiDescender(cp)) {
+      for (int row = 0; row < CjkUiFont20::CJK_UI_DESCENDER_ROWS; row++) {
+        const int screenY = startY + fontHeight + row;
+        for (int glyphX = 0; glyphX < fontWidth; glyphX++) {
+          const int byteIndex = row * bytesPerRow + (glyphX / 8);
+          const int bitIndex = 7 - (glyphX % 8);
+          if ((pgm_read_byte(&descender[byteIndex]) >> bitIndex) & 1) {
+            drawPixel(*x + glyphX, screenY, pixelState);
+          }
         }
       }
     }
