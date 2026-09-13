@@ -39,6 +39,9 @@ class ChapterHtmlSlimParser {
   int preUntilDepth = INT_MAX;
   bool preSkipLeadingNewline = false;  // <pre> 直後の改行 1 つは捨てる（HTML の規定）
   bool preSavedHyphenation = false;    // <pre> の間だけハイフネーションを切るための退避
+  // <pre> の下のアキ。最初の行から外して最後の行に付け替える（行ごとに付くと枠が途切れる）
+  int16_t preSavedMarginBottom = 0;
+  int16_t preSavedPaddingBottom = 0;
   // 読んだが、まだ行として確定させていない改行の数。改行が来た時点ではなく次の中身が
   // 来た時点で行を切ることで、</pre> に来たときに「最後の行」が手元に残る（枠の下辺を
   // 付けるために必要）。末尾の改行はこの仕組みで自然に捨てられる。

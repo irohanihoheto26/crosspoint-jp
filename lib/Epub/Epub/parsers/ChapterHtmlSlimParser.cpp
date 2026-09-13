@@ -247,7 +247,24 @@ void ChapterHtmlSlimParser::preFlushPendingNewlines() {
   while (prePendingNewlines > 0) {
     auto lineStyle = currentTextBlock->getBlockStyle();
     lineStyle.frameEdges = static_cast<uint8_t>(lineStyle.frameEdges & ~BlockStyle::FRAME_TOP);
-    lineStyle.marginTop = 0;  // 上の余白は <pre> の最初の行だけ
+    // 枠と中身の間のアキは <pre> の最初の行と最後の行だけが持つ。CSS の
+    // `pre { padding: 0.8em }` のような指定はブロック全体に 1 回かかるべきもので、
+    // 行ごとに付けると 1 行おきに空白が入り、左右の縦線も途切れる
+    // （縦線は 1 行の送りぶんしか引かないため）。
+    lineStyle.marginTop = 0;
+    lineStyle.paddingTop = 0;
+    lineStyle.marginBottom = 0;
+    lineStyle.paddingBottom = 0;
+    // 空のブロックを使い回すとき startNewTextBlock が親子のアキを足し込むので、
+    // 今のブロックからも落としておく（コードの空行がここを通る）。
+    if (currentTextBlock->isEmpty()) {
+      auto emptyStyle = currentTextBlock->getBlockStyle();
+      emptyStyle.marginTop = 0;
+      emptyStyle.paddingTop = 0;
+      emptyStyle.marginBottom = 0;
+      emptyStyle.paddingBottom = 0;
+      currentTextBlock->setBlockStyle(emptyStyle);
+    }
     startNewTextBlock(lineStyle);
     prePendingNewlines--;
     if (prePendingNewlines > 0) {
@@ -778,6 +795,17 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->preUntilDepth = std::min(self->preUntilDepth, self->depth);
     self->preSkipLeadingNewline = true;
     self->startNewTextBlock(preStyle);
+    // 下のアキは最後の行に付け替える。ここで実際のブロックから読み直すのは、
+    // startNewTextBlock が空ブロックを使い回すときに親（<div class="sourceCode"> など）の
+    // アキを足し込むため。
+    if (self->currentTextBlock) {
+      auto firstLineStyle = self->currentTextBlock->getBlockStyle();
+      self->preSavedMarginBottom = firstLineStyle.marginBottom;
+      self->preSavedPaddingBottom = firstLineStyle.paddingBottom;
+      firstLineStyle.marginBottom = 0;
+      firstLineStyle.paddingBottom = 0;
+      self->currentTextBlock->setBlockStyle(firstLineStyle);
+    }
     self->updateEffectiveInlineStyle();
     self->depth += 1;
     return;
@@ -1539,8 +1567,10 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
       auto lastStyle = self->currentTextBlock->getBlockStyle();
       lastStyle.frameEdges = static_cast<uint8_t>(lastStyle.frameEdges | BlockStyle::FRAME_BOTTOM);
-      lastStyle.marginBottom =
-          static_cast<int16_t>(lastStyle.marginBottom + self->renderer.getLineHeight(self->fontId) / 3);
+      // <pre> の開始時に外しておいた下のアキをここで戻す
+      lastStyle.paddingBottom = static_cast<int16_t>(lastStyle.paddingBottom + self->preSavedPaddingBottom);
+      lastStyle.marginBottom = static_cast<int16_t>(lastStyle.marginBottom + self->preSavedMarginBottom +
+                                                    self->renderer.getLineHeight(self->fontId) / 3);
       self->currentTextBlock->setBlockStyle(lastStyle);
     }
     // 直後のテキストが <pre> のスタイル（左揃え・字下げなし）を引きずらないよう
