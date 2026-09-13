@@ -278,6 +278,7 @@ bool TextBlock::serialize(FsFile& file) const {
   serialization::writePod(file, blockStyle.frameEdges);
   serialization::writePod(file, blockStyle.frameHeight);
   serialization::writePod(file, blockStyle.isListItem);
+  serialization::writePod(file, blockStyle.isHeading);
 
   // Vertical layout data
   serialization::writePod(file, isVertical);
@@ -335,6 +336,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   serialization::readPod(file, blockStyle.frameEdges);
   serialization::readPod(file, blockStyle.frameHeight);
   serialization::readPod(file, blockStyle.isListItem);
+  serialization::readPod(file, blockStyle.isHeading);
 
   // Vertical layout data
   bool vertical = false;

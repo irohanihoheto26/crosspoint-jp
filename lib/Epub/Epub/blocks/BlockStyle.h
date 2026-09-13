@@ -47,6 +47,9 @@ struct BlockStyle {
   uint16_t frameHeight = 0;
   // True for <li> elements — reduces extraParagraphSpacing
   bool isListItem = false;
+  // True for h1..h6 — 見出しは自前の marginBottom で本文と分けているので、
+  // 段落の追加アキ（extraParagraphSpacing）を重ねない。
+  bool isHeading = false;
 
   // Combined horizontal insets (margin + padding)
   [[nodiscard]] int16_t leftInset() const { return marginLeft + paddingLeft; }
@@ -89,6 +92,7 @@ struct BlockStyle {
     combinedBlockStyle.frameEdges = static_cast<uint8_t>(child.frameEdges | frameEdges);
     combinedBlockStyle.frameHeight = child.frameHeight != 0 ? child.frameHeight : frameHeight;
     combinedBlockStyle.isListItem = child.isListItem;
+    combinedBlockStyle.isHeading = child.isHeading;
 
     return combinedBlockStyle;
   }

@@ -868,6 +868,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       headerBlockStyle.marginBottom = static_cast<int16_t>(bodyLineHeight / 4);
     }
 
+    headerBlockStyle.isHeading = true;
+
     // Separator line below h1/h2
     if (level <= 2) {
       headerBlockStyle.drawSeparatorBelow = true;
@@ -1970,9 +1972,11 @@ void ChapterHtmlSlimParser::makePages() {
 
   // Extra paragraph spacing if enabled (default behavior)
   // List items get reduced spacing to avoid excessive gaps in TOC pages etc.
-  // <pre> は 1 行が 1 ブロックなので、段落の追加アキを入れると行間が広がり、
-  // 行ごとに引いているコードブロックの枠線も途切れてしまう。
-  if (extraParagraphSpacing && blockStyle.frameEdges == 0) {
+  // 段落の追加アキ。次の 2 つには入れない。
+  //  - 見出し: 自前の marginBottom で本文と分けている。行間を広げた設定（行送り 1.6 など）
+  //    だと追加アキだけで本文 0.8 行ぶんになり、見出しと本文が離れすぎる。
+  //  - <pre>: 1 行が 1 ブロックなので、入れると行間が広がって枠線も途切れる。
+  if (extraParagraphSpacing && blockStyle.frameEdges == 0 && !blockStyle.isHeading) {
     currentPageNextY += blockStyle.isListItem ? (lineHeight / 6) : (lineHeight / 2);
   }
 }
