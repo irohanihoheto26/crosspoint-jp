@@ -1,5 +1,6 @@
 #include "ReadingStatusHelper.h"
 
+#include <Arduino.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -25,8 +26,11 @@ ReadingStatus getReadingStatus(const std::string& filepath, const std::string& c
   // progress.bin パスを構築
   std::string progressPath = cacheDir + "/" + prefix + std::to_string(FsHelpers::pathHash(filepath)) + "/progress.bin";
 
-  FsFile f;
-  if (!Storage.openFileForRead("RSH", progressPath, f)) {
+  // openFileForRead は exists と open でパス解決を 2 回する。FAT のディレクトリ検索は
+  // 線形走査なので、蔵書が数百冊あると 1 冊あたりのコストがそのまま倍になる。
+  // 未読の本（progress.bin が無い）は毎回ログも出てしまうため、open だけで判定する。
+  FsFile f = Storage.open(progressPath.c_str(), O_RDONLY);
+  if (!f) {
     return ReadingStatus::Unread;
   }
 
@@ -86,6 +90,8 @@ ReadingStatus readStatusFromCacheDir(FsFile& bookDir, bool isEpub) {
 }  // namespace
 
 ReadingStatusIndex::ReadingStatusIndex(const std::string& cacheDir) {
+  const uint32_t startMs = millis();
+  uint32_t scannedDirs = 0;
   auto root = Storage.open(cacheDir.c_str());
   if (!root || !root.isDirectory()) {
     if (root) root.close();
@@ -126,6 +132,7 @@ ReadingStatusIndex::ReadingStatusIndex(const std::string& cacheDir) {
     }
 
     const ReadingStatus status = readStatusFromCacheDir(entry, isEpub);
+    scannedDirs++;
     entry.close();
 
     // 未読はキャッシュが無い場合と同じ扱いなので保持しない（メモリ節約）
@@ -142,8 +149,9 @@ ReadingStatusIndex::ReadingStatusIndex(const std::string& cacheDir) {
   std::sort(epubEntries.begin(), epubEntries.end(), byKey);
   std::sort(xtcEntries.begin(), xtcEntries.end(), byKey);
 
-  LOG_DBG("RSH", "Reading status index: %u epub, %u xtc", static_cast<unsigned>(epubEntries.size()),
-          static_cast<unsigned>(xtcEntries.size()));
+  LOG_DBG("RSH", "Reading status index: %u epub, %u xtc (scanned %u cache dirs in %lums)",
+          static_cast<unsigned>(epubEntries.size()), static_cast<unsigned>(xtcEntries.size()),
+          static_cast<unsigned>(scannedDirs), static_cast<unsigned long>(millis() - startMs));
 }
 
 ReadingStatus ReadingStatusIndex::lookup(const std::string& filepath) const {

@@ -1,5 +1,6 @@
 #include "FileBrowserActivity.h"
 
+#include <Arduino.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -24,6 +25,21 @@
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
+
+// このディレクトリの冊数がこれ以下なら、インデックスを作らず 1 冊ずつ直接引く。
+//
+// 分岐点は FAT のセクタ読み出し回数から出る。M = 蔵書全体のキャッシュ数として、
+//   直接引き 1 冊 … /.crosspoint の線形検索 1 回。ディレクトリ名 `epub_<10桁>` は
+//                   LFN 2 + SFN 1 = 96 バイトなので 512 バイトのセクタに 5.3 件。
+//                   ヒットで平均 M/2、未読（全走査して失敗）で M、いずれも ≒ M/5.3 セクタ
+//   インデックス  … 親の走査 M/5.3 セクタ + 子ディレクトリ 1 件あたり約 2 セクタ
+//                   （SdFat のキャッシュは 512 バイト 1 面のみ。USE_SEPARATE_FAT_CACHE は
+//                    __arm__ のときだけ有効で RISC-V では 0 なので、子に降りると親のセクタが
+//                    必ず追い出される）
+// 釣り合うのは N×(M/5.3) = 2M すなわち N ≒ 10.6。M が消えるので蔵書数に依らない。
+// 余裕を見て 8 とする。この値を超えるフォルダではインデックスのほうが安く、
+// 一度作れば以降の移動でも使い回せる。
+constexpr size_t DIRECT_STATUS_LOOKUP_MAX_BOOKS = 8;
 
 // dir 以下の空ディレクトリを再帰的に削除する。
 // リーフ（末端）から順に削除するため、ネストした空ディレクトリも連鎖的に削除される。
@@ -194,27 +210,45 @@ void FileBrowserActivity::loadFiles() {
   }
   sortFileList(files);
 
-  // 書籍が1冊も無いディレクトリ（画像だけ、サブディレクトリだけ等）では
-  // キャッシュを走査しても全件 Unread にしかならないので、作らない
-  const bool hasBooks = std::any_of(files.begin(), files.end(), [](const std::string& file) {
+  const size_t bookCount = static_cast<size_t>(std::count_if(files.begin(), files.end(), [](const std::string& file) {
     return FsHelpers::hasEpubExtension(file) || FsHelpers::hasXtcExtension(file);
-  });
-  if (!hasBooks) {
+  }));
+
+  // 書籍が1冊も無いディレクトリ（画像だけ、サブディレクトリだけ等）では
+  // キャッシュを見ても全件 Unread にしかならないので、何も読まない
+  if (bookCount == 0) {
     fileStatuses.assign(files.size(), ReadingStatus::Unread);
     return;
   }
 
-  // 各書籍ファイルの読書状態を取得。
-  // 1冊ずつ progress.bin を開くと /.crosspoint のディレクトリ検索が
-  // ファイル数×キャッシュ数ぶん走って一覧表示が極端に遅くなるため、
-  // キャッシュを1回だけ走査したインデックスから引く（Issue #136）。
-  // インデックスはこのスコープを抜けた時点で解放される。
-  const ReadingStatusIndex statusIndex("/.crosspoint");
   std::string fullBase = basepath;
   if (fullBase.back() != '/') fullBase += '/';
   fileStatuses.reserve(files.size());
+
+  // 各書籍ファイルの読書状態を取得。引き方は 2 通りあり、どちらが安いかは
+  // このディレクトリの冊数 N で決まる（DIRECT_STATUS_LOOKUP_MAX_BOOKS の導出を参照）。
+  // 一度インデックスを作ったあとは、作り直さず使い回すほうが常に安い。
+  //
+  // ここで測っている時間は閾値の妥当性を実機で確かめるためのもの。
+  // 蔵書数やカードの速度で分岐点は動くので、体感が変わったときに両経路の
+  // ms を見比べられるようにしてある（LOG_DBG なのでリリースビルドには残らない）。
+  const uint32_t statusStartMs = millis();
+  if (!statusIndex && bookCount <= DIRECT_STATUS_LOOKUP_MAX_BOOKS) {
+    std::transform(files.begin(), files.end(), std::back_inserter(fileStatuses),
+                   [&](const std::string& file) { return getReadingStatus(fullBase + file, "/.crosspoint"); });
+    LOG_DBG("FBA", "%s: %u books, status direct %lums", basepath.c_str(), static_cast<unsigned>(bookCount),
+            static_cast<unsigned long>(millis() - statusStartMs));
+    return;
+  }
+
+  const bool hadIndex = static_cast<bool>(statusIndex);
+  if (!statusIndex) {
+    statusIndex = std::make_unique<ReadingStatusIndex>("/.crosspoint");
+  }
   std::transform(files.begin(), files.end(), std::back_inserter(fileStatuses),
-                 [&](const std::string& file) { return statusIndex.lookup(fullBase + file); });
+                 [&](const std::string& file) { return statusIndex->lookup(fullBase + file); });
+  LOG_DBG("FBA", "%s: %u books, status index(%s) %lums", basepath.c_str(), static_cast<unsigned>(bookCount),
+          hadIndex ? "reused" : "built", static_cast<unsigned long>(millis() - statusStartMs));
 }
 
 void FileBrowserActivity::onEnter() {
@@ -335,6 +369,10 @@ void FileBrowserActivity::loop() {
         // 削除・アーカイブで空ディレクトリが生まれ得るので、次にルートを開いたときに掃除する
         requestEmptyDirCleanup();
 
+        // 読書状態を書き換えた（既読にする）あと・本が消えたあとなので索引を捨てる。
+        // ここは ConfirmationActivity から pop で戻ってくる経路で onEnter() を通らない。
+        statusIndex.reset();
+
         // 操作成功後、ファイル一覧を更新（アイコン状態反映のため）
         loadFiles();
         if (files.empty()) {
@@ -363,6 +401,9 @@ void FileBrowserActivity::loop() {
         selectorIndex = 0;
         requestUpdate();
       } else {
+        // 本を開くと ensureSdFontLoaded() が kernMatrix などの連続領域を確保する。
+        // ここから先で索引は使わないので、その前に返しておく。
+        statusIndex.reset();
         onSelectBook(basepath + entry);
       }
     }
