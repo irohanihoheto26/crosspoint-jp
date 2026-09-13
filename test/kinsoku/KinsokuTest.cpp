@@ -6,12 +6,12 @@
 // 前半は文字分類の単体テスト、後半は「CJK 1 文字 = 1 語」というパーサの語分割を
 // 再現したうえで貪欲法の行分割をかけ、どの行幅でも禁則違反が残らないことを見る。
 
-#include "Epub/Kinsoku.h"
-
 #include <cstdint>
 #include <cstdio>
 #include <string>
 #include <vector>
+
+#include "Epub/Kinsoku.h"
 
 namespace {
 
@@ -92,13 +92,12 @@ void testClassification() {
     uint32_t cp;
     const char* name;
   } startProhibited[] = {
-      {0x3001, "、"},  {0x3002, "。"},  {0xFF0C, "，"},  {0xFF0E, "．"},  {0x30FB, "・"},  {0xFF1A, "："},
-      {0xFF1B, "；"},  {0xFF01, "！"},  {0xFF1F, "？"},  {0x300D, "」"},  {0x300F, "』"},  {0x3011, "】"},
-      {0xFF09, "）"},  {0xFF3D, "］"},  {0xFF5D, "｝"},  {0x300B, "》"},  {0x3009, "〉"},  {0x201D, "”"},
-      {0x2019, "’"},   {0x301F, "〟"},  {0x30FC, "ー"},  {0xFF70, "ｰ"},   {0x3005, "々"},  {0x309D, "ゝ"},
-      {0x309E, "ゞ"},  {0x30FD, "ヽ"},  {0x30FE, "ヾ"},  {0x303B, "〻"},  {0x301C, "〜"},  {0xFF5E, "～"},
-      {0x2010, "‐"},   {0x30A0, "゠"},  {0x3063, "っ"},  {0x3083, "ゃ"},  {0x30C3, "ッ"},  {0x30F6, "ヶ"},
-      {0x31F0, "ㇰ"},  {0xFF9E, "ﾞ"},   {0xFF05, "％"},  {0x2103, "℃"},
+      {0x3001, "、"}, {0x3002, "。"}, {0xFF0C, "，"}, {0xFF0E, "．"}, {0x30FB, "・"}, {0xFF1A, "："}, {0xFF1B, "；"},
+      {0xFF01, "！"}, {0xFF1F, "？"}, {0x300D, "」"}, {0x300F, "』"}, {0x3011, "】"}, {0xFF09, "）"}, {0xFF3D, "］"},
+      {0xFF5D, "｝"}, {0x300B, "》"}, {0x3009, "〉"}, {0x201D, "”"},  {0x2019, "’"},  {0x301F, "〟"}, {0x30FC, "ー"},
+      {0xFF70, "ｰ"},  {0x3005, "々"}, {0x309D, "ゝ"}, {0x309E, "ゞ"}, {0x30FD, "ヽ"}, {0x30FE, "ヾ"}, {0x303B, "〻"},
+      {0x301C, "〜"}, {0xFF5E, "～"}, {0x2010, "‐"},  {0x30A0, "゠"}, {0x3063, "っ"}, {0x3083, "ゃ"}, {0x30C3, "ッ"},
+      {0x30F6, "ヶ"}, {0x31F0, "ㇰ"}, {0xFF9E, "ﾞ"},  {0xFF05, "％"}, {0x2103, "℃"},
   };
   for (const auto& e : startProhibited) {
     check(Kinsoku::isLineStartProhibited(e.cp), std::string("行頭禁則のはず: ") + e.name);
@@ -111,7 +110,7 @@ void testClassification() {
   } endProhibited[] = {
       {0x300C, "「"}, {0x300E, "『"}, {0x3010, "【"}, {0x3014, "〔"}, {0xFF08, "（"}, {0xFF3B, "［"},
       {0xFF5B, "｛"}, {0x300A, "《"}, {0x3008, "〈"}, {0x201C, "“"},  {0x2018, "‘"},  {0x301D, "〝"},
-      {0x0024, "$"},  {0x00A5, "¥"},  {0x2116, "№"}, {0x3012, "〒"},
+      {0x0024, "$"},  {0x00A5, "¥"},  {0x2116, "№"},  {0x3012, "〒"},
   };
   for (const auto& e : endProhibited) {
     check(Kinsoku::isLineEndProhibited(e.cp), std::string("行末禁則のはず: ") + e.name);
@@ -122,8 +121,7 @@ void testClassification() {
     uint32_t cp;
     const char* name;
   } ordinary[] = {
-      {0x3042, "あ"}, {0x4E00, "一"}, {0x30A2, "ア"}, {0x0041, "A"},
-      {0x3000, "全角空白"}, {0x2026, "…"}, {0x2015, "―"},
+      {0x3042, "あ"}, {0x4E00, "一"}, {0x30A2, "ア"}, {0x0041, "A"}, {0x3000, "全角空白"}, {0x2026, "…"}, {0x2015, "―"},
   };
   for (const auto& e : ordinary) {
     check(!Kinsoku::isLineStartProhibited(e.cp), std::string("行頭禁則ではないはず: ") + e.name);
