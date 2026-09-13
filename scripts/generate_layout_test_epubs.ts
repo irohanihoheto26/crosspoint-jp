@@ -6,6 +6,7 @@
 //   → test/epubs/ja_lists.epub    リスト（<ol> の連番・入れ子・start / value）
 //   → test/epubs/ja_inline.epub   <hr> / <sup> / <sub> / CJK 間の半角スペース
 //   → test/epubs/ja_headings.epub h1〜h6 と本文の間のアキ
+//   → test/epubs/ja_pre.epub      コードブロック（枠・行間・br・ページまたぎ）
 //
 // ja_kinsoku.epub の各段落は約物を一定周期で含むので、1 行あたりの文字数が何文字でも
 // どこかの行で「行頭に約物が来る」状態が必ず発生する。修正前後の比較用。
@@ -228,11 +229,79 @@ const headingChapters: { title: string; body: string }[] = [
   },
 ];
 
+// --- ja_pre.epub ------------------------------------------------------------
+
+// コードブロックの枠と行間を見るためのもの。CSS で pre に上下の padding/margin を
+// 指定してある（pandoc が出す EPUB と同じ形）。この余白が行ごとに掛かると
+// 1 行おきに空きが入り、左右の縦線が途切れる。
+const preCss = `pre {
+  border: 1px solid #ddd;
+  padding: 0.8em;
+  margin: 1em 0;
+  line-height: 1.5;
+}
+code { font-family: monospace; }
+`;
+
+// pandoc の syntax highlight と同じ、1 行ずつ <span> で囲んだ形
+function hl(lines: string[]): string {
+  const inner = lines.map((l, i) =>
+    `<span id="cb-${i + 1}"><a href="#cb-${i + 1}" aria-hidden="true" tabindex="-1"></a>${esc(l)}</span>`
+  ).join("\n");
+  return `<div class="sourceCode"><pre class="sourceCode"><code>${inner}</code></pre></div>`;
+}
+
+const preChapters: { title: string; body: string }[] = [
+  {
+    title: "一 ハイライト付き（1 行 = 1 span）",
+    body: `<p>${esc("下の枠が途切れず、行と行の間が詰まっていること。")}</p>
+${
+      hl([
+        "# 悪い例: ワークフローを要約している",
+        "description: Use when executing plans - dispatches subagent",
+        "            with code review between tasks",
+        "",
+        "# 良い例: 発動条件のみ",
+        "description: Use when executing implementation plans",
+      ])
+    }
+<p>${esc("コードの途中の空行は空行のまま残り、そこでも枠が途切れないこと。")}</p>`,
+  },
+  {
+    title: "二 素朴な pre・1 行・空行で始まる",
+    body: `<p>${esc("span で囲まない素朴な pre。")}</p>
+<pre><code>int main() {
+    return 0;
+}</code></pre>
+<p>${esc("1 行だけの pre。枠の上下が 1 行を挟んで閉じること。")}</p>
+<pre><code>echo hello</code></pre>
+<p>${esc("空行で始まる pre。枠の上辺が出て、1 行目が空行になること。")}</p>
+<pre><code>
+
+先頭が空行</code></pre>
+<p>${esc("中身が空の pre。次の段落との間隔が詰まりすぎないこと。")}</p>
+<pre><code></code></pre>
+<p>${esc("空の pre の直後の段落。")}</p>`,
+  },
+  {
+    title: "三 br で改行する pre",
+    body: `<p>${esc("DOCX 変換などで出てくる、改行文字ではなく br で行を分ける pre。")}</p>
+<pre><code>line1<br/>line2<br/>line3</code></pre>
+<p>${esc("上と同じ間隔・同じ枠になること。")}</p>`,
+  },
+  {
+    title: "四 ページをまたぐ長いコード",
+    body: `<p>${esc("ページ送りをしても枠の左右が途切れないこと。")}</p>
+${hl(Array.from({ length: 40 }, (_, i) => `line ${String(i + 1).padStart(2, "0")}: ${"x".repeat(20)}`))}
+<p>${esc("おわり。")}</p>`,
+  },
+];
+
 // --- EPUB 組み立て ----------------------------------------------------------
 
 type Chapter = { title: string; body: string };
 
-function buildEpub(bookTitle: string, uuid: string, chapters: Chapter[]): Entry[] {
+function buildEpub(bookTitle: string, uuid: string, chapters: Chapter[], css?: string): Entry[] {
   const files = chapters.map((c, i) => ({
     id: `chapter${i + 1}`,
     href: `chapter${i + 1}.xhtml`,
@@ -240,7 +309,9 @@ function buildEpub(bookTitle: string, uuid: string, chapters: Chapter[]): Entry[
     xhtml: `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja" lang="ja">
-<head><meta charset="utf-8"/><title>${esc(c.title)}</title></head>
+<head><meta charset="utf-8"/><title>${esc(c.title)}</title>${
+      css ? '<link rel="stylesheet" type="text/css" href="stylesheet.css"/>' : ""
+    }</head>
 <body>
 <h2>${esc(c.title)}</h2>
 ${c.body}
@@ -259,7 +330,9 @@ ${c.body}
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
-${files.map((c) => `    <item id="${c.id}" href="${c.href}" media-type="application/xhtml+xml"/>`).join("\n")}
+${css ? '    <item id="css" href="stylesheet.css" media-type="text/css"/>\n' : ""}${
+    files.map((c) => `    <item id="${c.id}" href="${c.href}" media-type="application/xhtml+xml"/>`).join("\n")
+  }
   </manifest>
   <spine>
 ${files.map((c) => `    <itemref idref="${c.id}"/>`).join("\n")}
@@ -289,6 +362,7 @@ ${files.map((c) => `<li><a href="${c.href}">${esc(c.title)}</a></li>`).join("\n"
     { name: "OEBPS/content.opf", data: enc.encode(contentOpf), store: false },
     { name: "OEBPS/nav.xhtml", data: enc.encode(navXhtml), store: false },
     ...files.map((c) => ({ name: `OEBPS/${c.href}`, data: enc.encode(c.xhtml), store: false })),
+    ...(css ? [{ name: "OEBPS/stylesheet.css", data: enc.encode(css), store: false }] : []),
   ];
 }
 
@@ -377,4 +451,8 @@ await writeZip(
 await writeZip(
   `${repoRoot}/test/epubs/ja_headings.epub`,
   buildEpub("見出しのアキ テスト", "headings-test-0001", headingChapters),
+);
+await writeZip(
+  `${repoRoot}/test/epubs/ja_pre.epub`,
+  buildEpub("コードブロック テスト", "pre-test-0001", preChapters, preCss),
 );
