@@ -1010,7 +1010,15 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Force special handling for pages with images when anti-aliasing is on
   bool imagePageWithAA = page->hasImages() && SETTINGS.getDirectionSettings(verticalMode).textAntiAliasing;
 
+  // アンチエイリアスするときだけ、BW パスでグリフのフチまで黒く敷いておく
+  // （後段のグレー2パスがその画素を灰色へ持ち上げる）。しないときは 50% しきい値の
+  // Sharp のままにする。フチまで黒くすると漢字の画がつぶれて解像感が落ちるため。
+  const bool grayscaleText = SETTINGS.getDirectionSettings(verticalMode).textAntiAliasing &&
+                             !FontManager::getInstance().isExternalFontEnabled();
+  renderer.setGlyphInk(grayscaleText ? GfxRenderer::GlyphInk::GrayscaleBase : GfxRenderer::GlyphInk::Sharp);
   page->render(renderer, SETTINGS.getReaderFontId(verticalMode), orientedMarginLeft, orientedMarginTop, viewportWidth);
+  // ステータスバーはグレーパスで描き直さないので常に Sharp で描く
+  renderer.setGlyphInk(GfxRenderer::GlyphInk::Sharp);
   renderStatusBar();
   const auto tBwRender = millis();
 
@@ -1027,8 +1035,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
       // Re-render page content to restore images into the blanked area
       // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
+      renderer.setGlyphInk(grayscaleText ? GfxRenderer::GlyphInk::GrayscaleBase : GfxRenderer::GlyphInk::Sharp);
       page->render(renderer, SETTINGS.getReaderFontId(verticalMode), orientedMarginLeft, orientedMarginTop,
                    viewportWidth);
+      renderer.setGlyphInk(GfxRenderer::GlyphInk::Sharp);
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     } else {
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -1044,8 +1054,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tBwStore = millis();
 
   // Grayscale rendering - skip for external fonts (1-bit bitmap, no antialiasing benefit)
-  const bool useExternalFont = FontManager::getInstance().isExternalFontEnabled();
-  if (SETTINGS.getDirectionSettings(verticalMode).textAntiAliasing && !useExternalFont) {
+  if (grayscaleText) {
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     page->render(renderer, SETTINGS.getReaderFontId(verticalMode), orientedMarginLeft, orientedMarginTop,

@@ -317,7 +317,7 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
           // 0 -> black, 1 -> dark grey, 2 -> light grey, 3 -> white
           const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
-          if (renderMode == GfxRenderer::BW && bmpVal < 3) {
+          if (renderMode == GfxRenderer::BW && renderer.isGlyphInk(bmpVal)) {
             // Black (also paints over the grays in BW mode)
             renderer.drawPixel(screenX, screenY, pixelState);
           } else if (renderMode == GfxRenderer::GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
@@ -1941,7 +1941,7 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
           const uint8_t bit_index = (3 - (pixelPosition & 3)) * 2;
           const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
-          if (renderMode == BW && bmpVal < 3) {
+          if (renderMode == BW && isGlyphInk(bmpVal)) {
             drawPixel(screenX, screenY, black);
           } else if (renderMode == GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
             drawPixel(screenX, screenY, false);
@@ -2048,7 +2048,7 @@ void GfxRenderer::drawTextSideways(const int fontId, const int x, const int y, c
             const uint8_t bit_index = (3 - pixelPosition % 4) * 2;
             const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
-            if (renderMode == BW && bmpVal < 3) {
+            if (renderMode == BW && isGlyphInk(bmpVal)) {
               drawPixel(screenX, screenY, black);
             } else if (renderMode == GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
               drawPixel(screenX, screenY, false);
@@ -2230,7 +2230,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
             const uint8_t bit_index = (3 - pixelPosition % 4) * 2;
             const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
-            if (renderMode == BW && bmpVal < 3) {
+            if (renderMode == BW && isGlyphInk(bmpVal)) {
               drawPixel(screenX, screenY, black);
             } else if (renderMode == GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
               drawPixel(screenX, screenY, false);
@@ -2656,16 +2656,7 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
             const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
 
             if (renderMode == BW) {
-              bool shouldDraw = false;
-              if (darkMode) {
-                if (bmpVal == 0) {
-                  shouldDraw = true;
-                }
-              } else if (bmpVal < 3) {
-                shouldDraw = true;
-              }
-
-              if (shouldDraw) {
+              if (isGlyphInk(bmpVal)) {
                 drawPixel(screenX, screenY, pixelState);
               }
             } else if (renderMode == GRAYSCALE_MSB || renderMode == GRAYSCALE_LSB) {
