@@ -38,7 +38,9 @@ class ReadingStatusIndex {
  private:
   // key = FsHelpers::pathHash()。実機の size_t は4バイトなので1件8バイト。
   // 読書中／読了の本だけを保持し、未読（＝キャッシュなし）は入れない。
-  // 一覧の生成中だけ持って破棄するため、蔵書1000冊でも一時的に8KB程度で済む。
+  // 蔵書1000冊なら8KB程度（vector の 2 倍成長で容量は最大 16KB）。
+  // 保持する期間は呼び出し側が決める。ファイル一覧はディレクトリ移動をまたいで
+  // 使い回すため、その画面にいる間ずっと居座る。
   struct Entry {
     size_t key;
     ReadingStatus status;

@@ -1,5 +1,6 @@
 #include "FileBrowserActivity.h"
 
+#include <Arduino.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -26,12 +27,19 @@ namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
 
 // このディレクトリの冊数がこれ以下なら、インデックスを作らず 1 冊ずつ直接引く。
-// 直接引きは N×M（N=このディレクトリの冊数、M=蔵書全体のキャッシュ数）、
-// インデックス構築は N に依らず M。蔵書が数百冊になると、10 冊のフォルダを
-// 開くたびに数百ディレクトリを走査することになるため、小さいほうを選ぶ。
-// 境界は概算: 直接引き 1 冊 ≒ .crosspoint の線形検索 1 回 + progress.bin の
-// オープン、インデックス 1 件 ≒ ディレクトリのオープンと数エントリの読み出し。
-constexpr size_t DIRECT_STATUS_LOOKUP_MAX_BOOKS = 48;
+//
+// 分岐点は FAT のセクタ読み出し回数から出る。M = 蔵書全体のキャッシュ数として、
+//   直接引き 1 冊 … /.crosspoint の線形検索 1 回。ディレクトリ名 `epub_<10桁>` は
+//                   LFN 2 + SFN 1 = 96 バイトなので 512 バイトのセクタに 5.3 件。
+//                   ヒットで平均 M/2、未読（全走査して失敗）で M、いずれも ≒ M/5.3 セクタ
+//   インデックス  … 親の走査 M/5.3 セクタ + 子ディレクトリ 1 件あたり約 2 セクタ
+//                   （SdFat のキャッシュは 512 バイト 1 面のみ。USE_SEPARATE_FAT_CACHE は
+//                    __arm__ のときだけ有効で RISC-V では 0 なので、子に降りると親のセクタが
+//                    必ず追い出される）
+// 釣り合うのは N×(M/5.3) = 2M すなわち N ≒ 10.6。M が消えるので蔵書数に依らない。
+// 余裕を見て 8 とする。この値を超えるフォルダではインデックスのほうが安く、
+// 一度作れば以降の移動でも使い回せる。
+constexpr size_t DIRECT_STATUS_LOOKUP_MAX_BOOKS = 8;
 
 // dir 以下の空ディレクトリを再帰的に削除する。
 // リーフ（末端）から順に削除するため、ネストした空ディレクトリも連鎖的に削除される。
@@ -202,12 +210,13 @@ void FileBrowserActivity::loadFiles() {
   }
   sortFileList(files);
 
-  // 書籍が1冊も無いディレクトリ（画像だけ、サブディレクトリだけ等）では
-  // キャッシュを走査しても全件 Unread にしかならないので、作らない
-  const bool hasBooks = std::any_of(files.begin(), files.end(), [](const std::string& file) {
+  const size_t bookCount = static_cast<size_t>(std::count_if(files.begin(), files.end(), [](const std::string& file) {
     return FsHelpers::hasEpubExtension(file) || FsHelpers::hasXtcExtension(file);
-  });
-  if (!hasBooks) {
+  }));
+
+  // 書籍が1冊も無いディレクトリ（画像だけ、サブディレクトリだけ等）では
+  // キャッシュを見ても全件 Unread にしかならないので、何も読まない
+  if (bookCount == 0) {
     fileStatuses.assign(files.size(), ReadingStatus::Unread);
     return;
   }
@@ -217,21 +226,12 @@ void FileBrowserActivity::loadFiles() {
   fileStatuses.reserve(files.size());
 
   // 各書籍ファイルの読書状態を取得。引き方は 2 通りあり、どちらが安いかは
-  // このディレクトリの冊数 N と蔵書全体のキャッシュ数 M で決まる。
+  // このディレクトリの冊数 N で決まる（DIRECT_STATUS_LOOKUP_MAX_BOOKS の導出を参照）。
+  // 一度インデックスを作ったあとは、作り直さず使い回すほうが常に安い。
   //
-  //   直接引く      … 1冊につき /.crosspoint/<prefix><hash>/progress.bin を開く。
-  //                    FAT のディレクトリ検索は線形走査なので N×M に比例する。
-  //   インデックス  … /.crosspoint を 1 回だけ順次走査して全冊ぶんを集める（Issue #136）。
-  //                    N に依らず M 回のディレクトリオープンがかかる。
-  //
-  // 蔵書が増えると M は数百になる。10 冊のフォルダを開くたびに数百ディレクトリを
-  // 走査するのは明らかに損なので、冊数が少ないうちは直接引く。
-  // 一度インデックスを作ったあと（＝大きいディレクトリを見たあと）は、
-  // 作り直さずそのまま使うほうが常に安い。
-  const size_t bookCount = static_cast<size_t>(std::count_if(files.begin(), files.end(), [](const std::string& file) {
-    return FsHelpers::hasEpubExtension(file) || FsHelpers::hasXtcExtension(file);
-  }));
-
+  // ここで測っている時間は閾値の妥当性を実機で確かめるためのもの。
+  // 蔵書数やカードの速度で分岐点は動くので、体感が変わったときに両経路の
+  // ms を見比べられるようにしてある（LOG_DBG なのでリリースビルドには残らない）。
   const uint32_t statusStartMs = millis();
   if (!statusIndex && bookCount <= DIRECT_STATUS_LOOKUP_MAX_BOOKS) {
     std::transform(files.begin(), files.end(), std::back_inserter(fileStatuses),
@@ -255,8 +255,6 @@ void FileBrowserActivity::onEnter() {
   Activity::onEnter();
 
   selectorIndex = 0;
-  // リーダーから戻ってきたときは読書状態が変わっているので作り直す
-  statusIndex.reset();
 
   auto root = Storage.open(basepath.c_str());
   if (!root) {
@@ -371,6 +369,10 @@ void FileBrowserActivity::loop() {
         // 削除・アーカイブで空ディレクトリが生まれ得るので、次にルートを開いたときに掃除する
         requestEmptyDirCleanup();
 
+        // 読書状態を書き換えた（既読にする）あと・本が消えたあとなので索引を捨てる。
+        // ここは ConfirmationActivity から pop で戻ってくる経路で onEnter() を通らない。
+        statusIndex.reset();
+
         // 操作成功後、ファイル一覧を更新（アイコン状態反映のため）
         loadFiles();
         if (files.empty()) {
@@ -399,6 +401,9 @@ void FileBrowserActivity::loop() {
         selectorIndex = 0;
         requestUpdate();
       } else {
+        // 本を開くと ensureSdFontLoaded() が kernMatrix などの連続領域を確保する。
+        // ここから先で索引は使わないので、その前に返しておく。
+        statusIndex.reset();
         onSelectBook(basepath + entry);
       }
     }

@@ -26,8 +26,11 @@ ReadingStatus getReadingStatus(const std::string& filepath, const std::string& c
   // progress.bin パスを構築
   std::string progressPath = cacheDir + "/" + prefix + std::to_string(FsHelpers::pathHash(filepath)) + "/progress.bin";
 
-  FsFile f;
-  if (!Storage.openFileForRead("RSH", progressPath, f)) {
+  // openFileForRead は exists と open でパス解決を 2 回する。FAT のディレクトリ検索は
+  // 線形走査なので、蔵書が数百冊あると 1 冊あたりのコストがそのまま倍になる。
+  // 未読の本（progress.bin が無い）は毎回ログも出てしまうため、open だけで判定する。
+  FsFile f = Storage.open(progressPath.c_str(), O_RDONLY);
+  if (!f) {
     return ReadingStatus::Unread;
   }
 
