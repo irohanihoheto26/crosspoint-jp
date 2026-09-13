@@ -253,6 +253,23 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   auto wordWidths = calculateWordWidths(renderer, fontId);
 
+  // リスト項目のぶら下げ幅を、マーカー語の実測幅に合わせ直す。
+  // パーサは <li> を見た時点でこの幅を見積もるが、その時点では SD カードフォントの
+  // advance テーブルがこのブロック用に用意されていない（用意するのは上の
+  // ensureSdCardFontReady）。見積もりと実測がずれると、折り返した行の頭が
+  // 本文 1 文字目からその差だけ外れる。paddingLeft と textIndent を同じ量だけ
+  // 動かすので、マーカーの位置は変わらず折り返し位置だけが揃う。
+  if (!hangIndentAligned && blockStyle.isListItem && blockStyle.textIndentDefined && blockStyle.textIndent < 0 &&
+      !wordWidths.empty()) {
+    hangIndentAligned = true;
+    const auto measured = static_cast<int16_t>(wordWidths[0]);
+    const auto delta = static_cast<int16_t>(measured + blockStyle.textIndent);  // 実測 − 見積もり
+    if (delta != 0) {
+      blockStyle.paddingLeft = static_cast<int16_t>(blockStyle.paddingLeft + delta);
+      blockStyle.textIndent = static_cast<int16_t>(-measured);
+    }
+  }
+
   // Build indexed continues vector from the parallel list for O(1) access during layout
   std::vector<bool> continuesVec(wordContinues.begin(), wordContinues.end());
 

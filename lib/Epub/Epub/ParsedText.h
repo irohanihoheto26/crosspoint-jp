@@ -26,6 +26,9 @@ class ParsedText {
   BlockStyle blockStyle;
   bool firstLineIndent;
   bool hyphenationEnabled;
+  // リスト項目のぶら下げ幅をマーカー語の実測幅に合わせ直したか。
+  // 中間 flush で同じブロックに対して複数回レイアウトが走るので、1 度だけ行う。
+  bool hangIndentAligned = false;
 
   void applyParagraphIndent();
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth, int spaceWidth,

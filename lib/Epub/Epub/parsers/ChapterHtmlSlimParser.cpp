@@ -216,6 +216,8 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
 
   // flush the buffer
   partWordBuffer[partWordBufferIndex] = '\0';
+  // リストマーカーの直後の語は必ずくっつける（マーカーと本文の間で折り返さない）
+  const bool attachToPrevious = nextWordContinues || listMarkerPending;
   if (verticalMode) {
     // Classify for vertical: count ASCII digits to determine TateChuYoko vs Sideways
     bool allDigits = true;
@@ -228,13 +230,14 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
     if (allDigits && asciiCharCount <= 2) {
       vb = VerticalTextUtils::VerticalBehavior::TateChuYoko;
     }
-    currentTextBlock->addWord(partWordBuffer, fontStyle, vb, false, nextWordContinues, pendingSpace);
+    currentTextBlock->addWord(partWordBuffer, fontStyle, vb, false, attachToPrevious, pendingSpace);
   } else {
-    currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues, pendingSpace);
+    currentTextBlock->addWord(partWordBuffer, fontStyle, false, attachToPrevious, pendingSpace);
   }
   partWordBufferIndex = 0;
   nextWordContinues = false;
   pendingSpace = false;
+  listMarkerPending = false;
 }
 
 // <pre> で保留していた改行を行区切りとして確定させる。
@@ -258,6 +261,7 @@ void ChapterHtmlSlimParser::preFlushPendingNewlines() {
 void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   nextWordContinues = false;  // New block = new paragraph, no continuation
   pendingSpace = false;
+  listMarkerPending = false;
   if (currentTextBlock) {
     // already have a text block running and it is empty - just reuse it
     if (currentTextBlock->isEmpty()) {
@@ -893,7 +897,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
         // リストマーカー。<ol> の中なら連番、それ以外は中黒。
         // <ol type="a"> などの英字・ローマ数字は未対応で、いずれも十進で振る。
-        char marker[12] = "\xe2\x80\xa2";  // •
+        char marker[24] = "\xe2\x80\xa2";  // •
         ListContext* listCtx = (self->listDepth > 0 && self->listDepth <= MAX_LIST_NESTING)
                                    ? &self->listStack[self->listDepth - 1]
                                    : nullptr;
@@ -911,11 +915,21 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
           if (listCtx->counter < 9999) listCtx->counter++;
         }
 
-        const int markerW = self->renderer.getTextAdvanceX(self->fontId, marker, EpdFontFamily::REGULAR);
-        const int spaceW = self->renderer.getTextAdvanceX(self->fontId, " ", EpdFontFamily::REGULAR);
-        // Ensure a visually meaningful indent (at least half line height)
+        // マーカーと本文の間の空きは、レイアウトが入れる語間ではなくマーカー語そのものに持たせる。
+        // 語間は中身次第（CJK どうしなら 0、欧文なら空白 1 つ）で変わるので、それを当てにすると
+        // ぶら下げ幅と本文の開始位置がずれて、折り返した行だけ余分に下がってしまう。
+        // 空きを 1 つ入れたうえで、行として意味のある字下げ（行高の半分）に届くまで足す。
         const int minIndent = self->renderer.getLineHeight(self->fontId) / 2;
-        const auto hangIndent = static_cast<int16_t>(std::max(markerW + spaceW, minIndent));
+        size_t markerLen = strlen(marker);
+        int markerW = 0;
+        do {
+          marker[markerLen++] = ' ';
+          marker[markerLen] = '\0';
+          markerW = self->renderer.getTextAdvanceX(self->fontId, marker, EpdFontFamily::REGULAR);
+        } while (markerW < minIndent && markerLen + 1 < sizeof(marker));
+        // ぶら下げ幅はマーカー語の実幅そのもの。次の語は語間 0 でくっつくので、
+        // 折り返した行の頭が本文 1 文字目にちょうど揃う。
+        const auto hangIndent = static_cast<int16_t>(markerW);
         // 入れ子の分の字下げ。<ol> / <ul> 自体はブロックとして扱っていないので CSS の
         // margin-left が効かず、これを入れないと内側のリストが外側と同じ位置に並ぶ。
         const int nestIndent = (self->listDepth > 1 ? self->listDepth - 1 : 0) * hangIndent;
@@ -934,6 +948,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         } else {
           self->currentTextBlock->addWord(marker, EpdFontFamily::REGULAR);
         }
+        self->listMarkerPending = true;
+        self->pendingSpace = false;
       } else {
         self->startNewTextBlock(userAlignmentBlockStyle);
         self->updateEffectiveInlineStyle();
@@ -1152,8 +1168,9 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       // Whitespace is a real word boundary -- reset continuation state
       self->nextWordContinues = false;
       // 次の語の前に空白があったことを覚えておく。ブロック先頭の空白は
-      // 字下げではなく HTML の整形由来なので無視する。
-      if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+      // 字下げではなく HTML の整形由来なので無視する。リストマーカーの直後も同じで、
+      // <li> の後ろの改行や字下げを語間にしてしまうとぶら下げ幅とずれる。
+      if (self->currentTextBlock && !self->currentTextBlock->isEmpty() && !self->listMarkerPending) {
         self->pendingSpace = true;
       }
       i++;
@@ -1245,11 +1262,13 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       }
       if (self->verticalMode) {
         self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright,
-                                        false, false, self->pendingSpace);
+                                        false, self->listMarkerPending, self->pendingSpace);
       } else {
-        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, false, false, self->pendingSpace);
+        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, false, self->listMarkerPending,
+                                        self->pendingSpace);
       }
       self->pendingSpace = false;
+      self->listMarkerPending = false;
       i += charLen;
       // 中間flush: 1 回の characterData 呼び出しで CJK 単語が大量追加される場合、
       // characterData 末尾の flush 判定では間に合わず words vector の realloc で abort する。

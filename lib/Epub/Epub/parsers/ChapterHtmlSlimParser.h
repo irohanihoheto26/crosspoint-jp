@@ -104,6 +104,10 @@ class ChapterHtmlSlimParser {
   };
   ListContext listStack[MAX_LIST_NESTING];
   int listDepth = 0;
+  // リストマーカーを出した直後か。次に来る語をマーカーに必ずくっつけて語間 0 にするための印。
+  // こうしないと語間が中身次第（CJK か欧文か、原文に空白があるか）で変わり、
+  // ぶら下げインデントの幅と本文の開始位置がずれる。
+  bool listMarkerPending = false;
 
   // Table grid buffering
   struct TableCellData {

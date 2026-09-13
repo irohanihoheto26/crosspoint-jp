@@ -75,7 +75,11 @@ const kinsokuChapters: { title: string; body: string }[] = [
 const listChapters: { title: string; body: string }[] = [
   {
     title: "一 基本",
-    body: `<ol>
+    // 同じ文字が続く項目を先頭に置いてある。折り返した行の頭が本文 1 文字目に
+    // 揃っているかを、字形の左サイドベアリングに惑わされずに画素で測るため。
+    body: `<ol><li>${"銀".repeat(48)}</li></ol>
+<ul><li>${"銀".repeat(48)}</li></ul>
+<ol>
 <li>電源ボタンを長押しして起動する。</li>
 <li>折り返した行がぶら下げインデントになることもここで見る、という長めの項目。</li>
 </ol>

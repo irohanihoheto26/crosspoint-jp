@@ -25,7 +25,8 @@ namespace {
 // Version 37: <hr> の区切り線、<sup>/<sub> を小さいフォントで描画、CJK どうしの字間を
 //             原文に空白があるときだけ空ける。均等割りも空白を取り置いてから配る。
 // Version 38: <pre> の空白・改行の保持とコードブロックの枠線（BlockStyle に枠の情報を追加）。
-constexpr uint8_t SECTION_FILE_VERSION = 38;
+// Version 39: リスト項目のぶら下げ幅をマーカー語の実測幅に合わせる（折り返し位置が変わる）。
+constexpr uint8_t SECTION_FILE_VERSION = 39;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().
