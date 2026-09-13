@@ -54,6 +54,9 @@ constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
 
+// <pre> の中でタブ 1 つを何個の空白として扱うか。画面幅が狭いので 8 ではなく 4 にする。
+constexpr int PRE_TAB_WIDTH = 4;
+
 // Check if a Unicode codepoint is an invisible/zero-width character that should be skipped
 bool isInvisibleCodepoint(const uint32_t cp) {
   if (cp == 0xFEFF) return true;                  // BOM / Zero Width No-Break Space
@@ -190,6 +193,8 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   const bool isBold = boldUntilDepth < depth || effectiveBold;
   const bool isItalic = italicUntilDepth < depth || effectiveItalic;
   const bool isUnderline = underlineUntilDepth < depth || effectiveUnderline;
+  const bool isSuperscript = superscriptUntilDepth < depth;
+  const bool isSubscript = subscriptUntilDepth < depth;
 
   // Combine style flags using bitwise OR
   EpdFontFamily::Style fontStyle = EpdFontFamily::REGULAR;
@@ -202,9 +207,17 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   if (isUnderline) {
     fontStyle = static_cast<EpdFontFamily::Style>(fontStyle | EpdFontFamily::UNDERLINE);
   }
+  // <sub> が <sup> の内側にあるような壊れた入れ子では上付きを優先する
+  if (isSuperscript) {
+    fontStyle = static_cast<EpdFontFamily::Style>(fontStyle | EpdFontFamily::SUPERSCRIPT);
+  } else if (isSubscript) {
+    fontStyle = static_cast<EpdFontFamily::Style>(fontStyle | EpdFontFamily::SUBSCRIPT);
+  }
 
   // flush the buffer
   partWordBuffer[partWordBufferIndex] = '\0';
+  // リストマーカーの直後の語は必ずくっつける（マーカーと本文の間で折り返さない）
+  const bool attachToPrevious = nextWordContinues || listMarkerPending;
   if (verticalMode) {
     // Classify for vertical: count ASCII digits to determine TateChuYoko vs Sideways
     bool allDigits = true;
@@ -217,17 +230,38 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
     if (allDigits && asciiCharCount <= 2) {
       vb = VerticalTextUtils::VerticalBehavior::TateChuYoko;
     }
-    currentTextBlock->addWord(partWordBuffer, fontStyle, vb, false, nextWordContinues);
+    currentTextBlock->addWord(partWordBuffer, fontStyle, vb, false, attachToPrevious, pendingSpace);
   } else {
-    currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues);
+    currentTextBlock->addWord(partWordBuffer, fontStyle, false, attachToPrevious, pendingSpace);
   }
   partWordBufferIndex = 0;
   nextWordContinues = false;
+  pendingSpace = false;
+  listMarkerPending = false;
+}
+
+// <pre> で保留していた改行を行区切りとして確定させる。
+// 2 つ以上続いていた場合は、間の行を空行として出す（コードの空行を潰さないため）。
+// 新しい行は枠の左右だけを持ち、上辺・下辺は <pre> の開始と終了で付ける。
+void ChapterHtmlSlimParser::preFlushPendingNewlines() {
+  while (prePendingNewlines > 0) {
+    auto lineStyle = currentTextBlock->getBlockStyle();
+    lineStyle.frameEdges = static_cast<uint8_t>(lineStyle.frameEdges & ~BlockStyle::FRAME_TOP);
+    lineStyle.marginTop = 0;  // 上の余白は <pre> の最初の行だけ
+    startNewTextBlock(lineStyle);
+    prePendingNewlines--;
+    if (prePendingNewlines > 0) {
+      // 空行。語が 1 つも無いブロックはページに積まれないので空白を 1 つ置く。
+      currentTextBlock->addWord(" ", EpdFontFamily::REGULAR);
+    }
+  }
 }
 
 // start a new text block if needed
 void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   nextWordContinues = false;  // New block = new paragraph, no continuation
+  pendingSpace = false;
+  listMarkerPending = false;
   if (currentTextBlock) {
     // already have a text block running and it is empty - just reuse it
     if (currentTextBlock->isEmpty()) {
@@ -261,6 +295,27 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   if (self->skipUntilDepth < self->depth) {
     self->depth += 1;
     return;
+  }
+
+  // <ol> / <ul>: <li> のマーカーを連番にするか中黒にするかを決めるためにネストを記録する。
+  // 要素自体は中身を持たないので、この後の分岐はそのまま通す。display:none の判定より
+  // 手前に置いてあるのは、endElement 側の pop と対称にするため（隠しリストも push する）。
+  if (strcmp(name, "ol") == 0 || strcmp(name, "ul") == 0) {
+    const bool ordered = strcmp(name, "ol") == 0;
+    uint16_t start = 1;
+    if (ordered && atts != nullptr) {
+      for (int i = 0; atts[i]; i += 2) {
+        if (strcmp(atts[i], "start") == 0) {
+          const long v = strtol(atts[i + 1], nullptr, 10);
+          if (v > 0 && v <= 9999) start = static_cast<uint16_t>(v);
+        }
+      }
+    }
+    if (self->listDepth < MAX_LIST_NESTING) {
+      self->listStack[self->listDepth].ordered = ordered;
+      self->listStack[self->listDepth].counter = start;
+    }
+    self->listDepth++;
   }
 
   // Extract class, style, and id attributes
@@ -693,6 +748,59 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Detect internal <a href="..."> links (footnotes, cross-references)
   // Note: <aside epub:type="footnote"> elements are rendered as normal content
   // without special handling. Links pointing to them are collected as footnotes.
+  // <pre>: 空白と改行を原文のまま出す。行は左揃えで、自動字下げもハイフネーションも止める。
+  // 等幅フォントは持っていないので字送りは揃わないが、1 段落に潰れてしまう今までよりは読める。
+  if (strcmp(name, "pre") == 0) {
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
+    const auto preEmSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
+    auto preStyle = BlockStyle::fromCssStyle(cssStyle, preEmSize, CssTextAlign::Left, self->viewportWidth);
+    preStyle.alignment = CssTextAlign::Left;
+    preStyle.textAlignDefined = true;
+    // textIndentDefined を立てて字下げ 0 にすることで、段落頭の自動インデント
+    // （EmSpace の挿入や CJK 1 文字ぶんの字下げ）を抑える。
+    preStyle.textIndent = 0;
+    preStyle.textIndentDefined = true;
+    preStyle.frameEdges = BlockStyle::FRAME_SIDES | BlockStyle::FRAME_TOP;
+    // 枠の前後の余白。marginTop/Bottom はブロック単位で効くので、
+    // 最初の行に上、最後の行（</pre> の処理）に下を付ける。
+    preStyle.marginTop = static_cast<int16_t>(preStyle.marginTop + self->renderer.getLineHeight(self->fontId) / 3);
+    // 枠線と本文がくっつかないように左右に余白を取る（枠は viewport の端に引かれる）
+    const auto framePadding = static_cast<int16_t>(std::max(4, self->renderer.getLineHeight(self->fontId) / 4));
+    preStyle.paddingLeft = static_cast<int16_t>(preStyle.paddingLeft + framePadding);
+    preStyle.paddingRight = static_cast<int16_t>(preStyle.paddingRight + framePadding);
+    self->prePendingNewlines = 0;
+    if (self->preUntilDepth == INT_MAX) {
+      self->preSavedHyphenation = self->hyphenationEnabled;
+      self->hyphenationEnabled = false;
+    }
+    self->preUntilDepth = std::min(self->preUntilDepth, self->depth);
+    self->preSkipLeadingNewline = true;
+    self->startNewTextBlock(preStyle);
+    self->updateEffectiveInlineStyle();
+    self->depth += 1;
+    return;
+  }
+
+  // <hr>: 場面転換などの区切り線。h1/h2 の下線と同じ仕組み（drawSeparatorBelow）で描く。
+  // 語が 1 つも無いブロックはページに積まれないので、幅ゼロの全角スペースではなく
+  // 半角スペースを 1 つ持たせて 1 行分の高さを確保する。
+  // 縦書きでは TextBlock::render が横罫を抑止するので、空き 1 列になる。
+  if (strcmp(name, "hr") == 0) {
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
+    self->startNewTextBlock(BlockStyle());
+    BlockStyle hrStyle;
+    hrStyle.drawSeparatorBelow = true;
+    self->addLineToPage(std::make_shared<TextBlock>(std::vector<std::string>{" "}, std::vector<int16_t>{0},
+                                                    std::vector<EpdFontFamily::Style>{EpdFontFamily::REGULAR},
+                                                    hrStyle));
+    self->depth += 1;
+    return;
+  }
+
   if (strcmp(name, "a") == 0) {
     const char* href = getAttribute(atts, "href");
 
@@ -760,6 +868,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       headerBlockStyle.marginBottom = static_cast<int16_t>(bodyLineHeight / 4);
     }
 
+    headerBlockStyle.isHeading = true;
+
     // Separator line below h1/h2
     if (level <= 2) {
       headerBlockStyle.drawSeparatorBelow = true;
@@ -786,17 +896,81 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         }
         auto liBlockStyle = userAlignmentBlockStyle;
         liBlockStyle.isListItem = true;
-        const int bulletW = self->renderer.getTextAdvanceX(self->fontId, "\xe2\x80\xa2", EpdFontFamily::REGULAR);
-        const int spaceW = self->renderer.getTextAdvanceX(self->fontId, " ", EpdFontFamily::REGULAR);
-        // Ensure a visually meaningful indent (at least half line height)
+
+        // リストマーカー。<ol> の中なら連番、それ以外は中黒。
+        // <ol type="a"> などの英字・ローマ数字は未対応で、いずれも十進で振る。
+        char marker[24] = "\xe2\x80\xa2";  // •
+        ListContext* listCtx = (self->listDepth > 0 && self->listDepth <= MAX_LIST_NESTING)
+                                   ? &self->listStack[self->listDepth - 1]
+                                   : nullptr;
+        if (listCtx != nullptr && listCtx->ordered) {
+          // <li value="N"> は以降の連番の起点も動かす（HTML と同じ）。
+          if (atts != nullptr) {
+            for (int i = 0; atts[i]; i += 2) {
+              if (strcmp(atts[i], "value") == 0) {
+                const long v = strtol(atts[i + 1], nullptr, 10);
+                if (v > 0 && v <= 9999) listCtx->counter = static_cast<uint16_t>(v);
+              }
+            }
+          }
+          snprintf(marker, sizeof(marker), "%u.", static_cast<unsigned>(listCtx->counter));
+          if (listCtx->counter < 9999) listCtx->counter++;
+        }
+
+        // マーカーと本文の間の空きは、レイアウトが入れる語間ではなくマーカー語そのものに持たせる。
+        // 語間は中身次第（CJK どうしなら 0、欧文なら空白 1 つ）で変わるので、それを当てにすると
+        // ぶら下げ幅と本文の開始位置がずれて、折り返した行だけ余分に下がってしまう。
+        const size_t markerTextLen = strlen(marker);
+
+        // 幅を測る前に、マーカーに使う字の advance を用意しておく。SD カードフォントの
+        // advance テーブルはブロック単位で用意される（ParsedText の ensureSdCardFontReady）が、
+        // ここはまだその手前。用意しないと lookupAdvance が NotCached を返して幅 0 になり、
+        // ぶら下げ幅が狂ううえ、下のループが上限まで空白を足してしまう。
+        if (self->renderer.isSdCardFont(self->fontId)) {
+          self->renderer.ensureSdCardFontReady(self->fontId, "0123456789. \xe2\x80\xa2", 1u << EpdFontFamily::REGULAR);
+        }
+
+        // 空きを 1 つ入れたうえで、行として意味のある字下げ（行高の半分）に届くまで足す。
+        // 縦書きでは事情が違う: ぶら下げインデント（paddingLeft / textIndent）は
+        // layoutVerticalColumns が使わないので詰め物は効かず、列方向の空きになるだけ。
+        // よって縦書きでは足さない。
+        // 幅が 0 に見えるフォントでも暴走しないよう、足す数には上限を置く。
+        static constexpr size_t MAX_MARKER_PADDING = 4;
         const int minIndent = self->renderer.getLineHeight(self->fontId) / 2;
-        const auto hangIndent = static_cast<int16_t>(std::max(bulletW + spaceW, minIndent));
-        liBlockStyle.paddingLeft = static_cast<int16_t>(liBlockStyle.paddingLeft + hangIndent);
+        size_t markerLen = markerTextLen;
+        int markerW = self->renderer.getTextAdvanceX(self->fontId, marker, EpdFontFamily::REGULAR);
+        if (!self->verticalMode) {
+          do {
+            marker[markerLen++] = ' ';
+            marker[markerLen] = '\0';
+            markerW = self->renderer.getTextAdvanceX(self->fontId, marker, EpdFontFamily::REGULAR);
+          } while (markerW < minIndent && markerLen - markerTextLen < MAX_MARKER_PADDING);
+        }
+        // ぶら下げ幅はマーカー語の実幅そのもの。次の語は語間 0 でくっつくので、
+        // 折り返した行の頭が本文 1 文字目にちょうど揃う。
+        // 万一 0 になっても字下げが消えないよう最低値を入れる。
+        const auto hangIndent = static_cast<int16_t>(std::max(markerW, minIndent));
+        // 入れ子の分の字下げ。<ol> / <ul> 自体はブロックとして扱っていないので CSS の
+        // margin-left が効かず、これを入れないと内側のリストが外側と同じ位置に並ぶ。
+        const int nestIndent = (self->listDepth > 1 ? self->listDepth - 1 : 0) * hangIndent;
+        liBlockStyle.paddingLeft = static_cast<int16_t>(liBlockStyle.paddingLeft + hangIndent + nestIndent);
         liBlockStyle.textIndent = static_cast<int16_t>(-hangIndent);
         liBlockStyle.textIndentDefined = true;
         self->startNewTextBlock(liBlockStyle);
         self->updateEffectiveInlineStyle();
-        self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR);
+        if (self->verticalMode) {
+          // 縦書きでは wordVerticalBehaviors が words と並列なので、ここで積まないと
+          // 以降の語の縦書き挙動が 1 つずつずれる。1〜2 桁の番号は縦中横にする。
+          // 詰め物の空白を含まない番号部分の長さで判定する（"1." = 2、"10." = 3）
+          const auto vb = (listCtx != nullptr && listCtx->ordered && markerTextLen <= 3)
+                              ? VerticalTextUtils::VerticalBehavior::TateChuYoko
+                              : VerticalTextUtils::VerticalBehavior::Upright;
+          self->currentTextBlock->addWord(marker, EpdFontFamily::REGULAR, vb);
+        } else {
+          self->currentTextBlock->addWord(marker, EpdFontFamily::REGULAR);
+        }
+        self->listMarkerPending = true;
+        self->pendingSpace = false;
       } else {
         self->startNewTextBlock(userAlignmentBlockStyle);
         self->updateEffectiveInlineStyle();
@@ -824,6 +998,18 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     }
     self->inlineStyleStack.push_back(entry);
     self->updateEffectiveInlineStyle();
+  } else if (strcmp(name, "sup") == 0 || strcmp(name, "sub") == 0) {
+    // 上付き・下付き。小さいフォントに切り替えるだけなので inlineStyleStack は使わず、
+    // <b> / <i> と同じ深さ追跡で扱う。
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+      self->nextWordContinues = true;
+    }
+    if (strcmp(name, "sup") == 0) {
+      self->superscriptUntilDepth = std::min(self->superscriptUntilDepth, self->depth);
+    } else {
+      self->subscriptUntilDepth = std::min(self->subscriptUntilDepth, self->depth);
+    }
   } else if (matches(name, BOLD_TAGS, NUM_BOLD_TAGS)) {
     // Flush buffer before style change so preceding text gets current style
     if (self->partWordBufferIndex > 0) {
@@ -946,6 +1132,54 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
 
   int i = 0;
   while (i < len) {
+    // <pre> の中では空白と改行を原文のまま残す。
+    if (self->preUntilDepth < self->depth && isWhitespace(s[i])) {
+      if (s[i] == '\r') {
+        i++;
+        continue;
+      }
+      if (s[i] == '\n') {
+        if (self->partWordBufferIndex > 0) {
+          self->flushPartWordBuffer();
+        }
+        // <pre> の直後の改行 1 つは表示しない（HTML の規定）
+        if (self->preSkipLeadingNewline && self->currentTextBlock && self->currentTextBlock->isEmpty() &&
+            self->prePendingNewlines == 0) {
+          self->preSkipLeadingNewline = false;
+          i++;
+          continue;
+        }
+        self->preSkipLeadingNewline = false;
+        // ここでは行を切らず数えるだけ。次の中身が来たときに確定させる。
+        self->prePendingNewlines++;
+        i++;
+        continue;
+      }
+      // 空白・タブの連なりを 1 つの語にして、直前の語にくっつける。
+      // くっつけるのは、その手前で折り返すと行頭に空白が出てしまうため。
+      // 折り返しは次の語の前で起きる（下で nextWordContinues を戻している）。
+      self->preSkipLeadingNewline = false;
+      if (self->partWordBufferIndex > 0) {
+        self->flushPartWordBuffer();
+      }
+      self->preFlushPendingNewlines();
+      int spaces = 0;
+      while (i < len && (s[i] == ' ' || s[i] == '\t')) {
+        spaces += (s[i] == '\t') ? PRE_TAB_WIDTH : 1;
+        i++;
+      }
+      if (spaces > MAX_WORD_SIZE) spaces = MAX_WORD_SIZE;
+      const std::string spaceWord(static_cast<size_t>(spaces), ' ');
+      if (self->verticalMode) {
+        self->currentTextBlock->addWord(spaceWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright,
+                                        false, true, false);
+      } else {
+        self->currentTextBlock->addWord(spaceWord, EpdFontFamily::REGULAR, false, true, false);
+      }
+      self->nextWordContinues = false;  // 次の語の前では折り返してよい
+      continue;
+    }
+
     // Check for whitespace (ASCII only)
     if (isWhitespace(s[i])) {
       // Flush any buffered content as a word
@@ -954,7 +1188,28 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       }
       // Whitespace is a real word boundary -- reset continuation state
       self->nextWordContinues = false;
-      i++;
+
+      // 空白の連なりをまとめて読む。改行を含むかどうかで扱いが変わるため。
+      bool sawSegmentBreak = false;
+      while (i < len && isWhitespace(s[i])) {
+        if (s[i] == '\n' || s[i] == '\r') sawSegmentBreak = true;
+        i++;
+      }
+
+      // 改行を含む空白は「行の折り返し」であって空白ではない（CSS Text のセグメント改行）。
+      // 和文どうしの間の改行は取り除かれるのが正しく、空白にしてはいけない。整形のために
+      // 折り返してある XHTML は日本語の EPUB では珍しくないので、ここを間違えると
+      // 原文の折り返し位置すべてに半角空白が入ってしまう。
+      // 改行の前後にある空白も同じ扱いになる（CSS は改行に隣接する空白を先に落とす）ので、
+      // 連なり全体を見て決める。
+      //
+      // 実際の空白（' ' / '\t'）だけなら語間として残す。ブロック先頭の空白は字下げではなく
+      // HTML の整形由来なので無視する。リストマーカーの直後も同じで、<li> の後ろの空白を
+      // 語間にしてしまうとぶら下げ幅とずれる。
+      if (!sawSegmentBreak && self->currentTextBlock && !self->currentTextBlock->isEmpty() &&
+          !self->listMarkerPending) {
+        self->pendingSpace = true;
+      }
       continue;
     }
 
@@ -1000,6 +1255,10 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       continue;
     }
 
+    if (self->prePendingNewlines > 0) {
+      self->preFlushPendingNewlines();
+    }
+
     // Determine UTF-8 character length
     const unsigned char b0 = static_cast<unsigned char>(s[i]);
     const int charLen = getUtf8ByteLength(b0);
@@ -1038,10 +1297,14 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         cjkWord[j] = s[i + j];
       }
       if (self->verticalMode) {
-        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright);
+        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright,
+                                        false, self->listMarkerPending, self->pendingSpace);
       } else {
-        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR);
+        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, false, self->listMarkerPending,
+                                        self->pendingSpace);
       }
+      self->pendingSpace = false;
+      self->listMarkerPending = false;
       i += charLen;
       // 中間flush: 1 回の characterData 呼び出しで CJK 単語が大量追加される場合、
       // characterData 末尾の flush 判定では間に合わず words vector の realloc で abort する。
@@ -1119,12 +1382,21 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   const bool willPopStyleStack =
       !self->inlineStyleStack.empty() && self->inlineStyleStack.back().depth == self->depth - 1;
   const bool willClearBold = self->boldUntilDepth == self->depth - 1;
+  const bool willClearScript =
+      self->superscriptUntilDepth == self->depth - 1 || self->subscriptUntilDepth == self->depth - 1;
   const bool willClearItalic = self->italicUntilDepth == self->depth - 1;
   const bool willClearUnderline = self->underlineUntilDepth == self->depth - 1;
 
-  const bool styleWillChange = willPopStyleStack || willClearBold || willClearItalic || willClearUnderline;
+  const bool styleWillChange =
+      willPopStyleStack || willClearBold || willClearItalic || willClearUnderline || willClearScript;
   const bool headerOrBlockTag = isHeaderOrBlock(name);
   const bool tableStructuralTag = isTableStructuralTag(name);
+
+  // <ol> / <ul> のネストを戻す。depth はまだ減っていないので、この要素自身の深さは
+  // depth - 1。startElement が push を飛ばす条件（skip の内側）と対称にする。
+  if ((strcmp(name, "ol") == 0 || strcmp(name, "ul") == 0) && self->skipUntilDepth >= self->depth - 1) {
+    if (self->listDepth > 0) self->listDepth--;
+  }
 
   if (self->tableDepth > 1 && strcmp(name, "table") == 0) {
     self->tableDepth -= 1;
@@ -1252,6 +1524,36 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   // Leaving bold tag
   if (self->boldUntilDepth == self->depth) {
     self->boldUntilDepth = INT_MAX;
+  }
+
+  // Leaving pre
+  if (self->preUntilDepth == self->depth) {
+    self->preUntilDepth = INT_MAX;
+    self->preSkipLeadingNewline = false;
+    self->prePendingNewlines = 0;  // 末尾の改行は行にしない
+    self->hyphenationEnabled = self->preSavedHyphenation;
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
+    // 手元に残っている行が <pre> の最終行。ここで枠の下辺を付けてから流す。
+    if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+      auto lastStyle = self->currentTextBlock->getBlockStyle();
+      lastStyle.frameEdges = static_cast<uint8_t>(lastStyle.frameEdges | BlockStyle::FRAME_BOTTOM);
+      lastStyle.marginBottom =
+          static_cast<int16_t>(lastStyle.marginBottom + self->renderer.getLineHeight(self->fontId) / 3);
+      self->currentTextBlock->setBlockStyle(lastStyle);
+    }
+    // 直後のテキストが <pre> のスタイル（左揃え・字下げなし）を引きずらないよう
+    // ブロックを切り替える。currentTextBlock は常に非 null に保つ必要がある。
+    self->startNewTextBlock(BlockStyle());
+  }
+
+  // Leaving sup / sub
+  if (self->superscriptUntilDepth == self->depth) {
+    self->superscriptUntilDepth = INT_MAX;
+  }
+  if (self->subscriptUntilDepth == self->depth) {
+    self->subscriptUntilDepth = INT_MAX;
   }
 
   // Leaving italic tag
@@ -1412,6 +1714,14 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   const int effectiveFontId = (line->getBlockStyle().fontId != 0) ? line->getBlockStyle().fontId : fontId;
   const int lineHeight = renderer.getLineHeight(effectiveFontId) * lineCompression;
+
+  // 枠線の縦線は行の送りと同じ長さでないと隣の行との間で途切れる。
+  // 行送りを知っているのはここだけなので、この時点でブロックに入れておく。
+  if (line->getBlockStyle().frameEdges != 0) {
+    auto framedStyle = line->getBlockStyle();
+    framedStyle.frameHeight = static_cast<uint16_t>(lineHeight);
+    line->setBlockStyle(framedStyle);
+  }
 
   if (verticalMode) {
     // Vertical mode: columns placed right-to-left
@@ -1696,7 +2006,11 @@ void ChapterHtmlSlimParser::makePages() {
 
   // Extra paragraph spacing if enabled (default behavior)
   // List items get reduced spacing to avoid excessive gaps in TOC pages etc.
-  if (extraParagraphSpacing) {
+  // 段落の追加アキ。次の 2 つには入れない。
+  //  - 見出し: 自前の marginBottom で本文と分けている。行間を広げた設定（行送り 1.6 など）
+  //    だと追加アキだけで本文 0.8 行ぶんになり、見出しと本文が離れすぎる。
+  //  - <pre>: 1 行が 1 ブロックなので、入れると行間が広がって枠線も途切れる。
+  if (extraParagraphSpacing && blockStyle.frameEdges == 0 && !blockStyle.isHeading) {
     currentPageNextY += blockStyle.isListItem ? (lineHeight / 6) : (lineHeight / 2);
   }
 }

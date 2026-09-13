@@ -33,6 +33,17 @@ class ChapterHtmlSlimParser {
   int boldUntilDepth = INT_MAX;
   int italicUntilDepth = INT_MAX;
   int underlineUntilDepth = INT_MAX;
+  int superscriptUntilDepth = INT_MAX;
+  int subscriptUntilDepth = INT_MAX;
+  // <pre>: この深さより内側では空白と改行を原文のまま残す。
+  int preUntilDepth = INT_MAX;
+  bool preSkipLeadingNewline = false;  // <pre> 直後の改行 1 つは捨てる（HTML の規定）
+  bool preSavedHyphenation = false;    // <pre> の間だけハイフネーションを切るための退避
+  // 読んだが、まだ行として確定させていない改行の数。改行が来た時点ではなく次の中身が
+  // 来た時点で行を切ることで、</pre> に来たときに「最後の行」が手元に残る（枠の下辺を
+  // 付けるために必要）。末尾の改行はこの仕組みで自然に捨てられる。
+  int prePendingNewlines = 0;
+  void preFlushPendingNewlines();
   // buffer for building up words from characters, will auto break if longer than this
   // leave one char at end for null pointer
   char partWordBuffer[MAX_WORD_SIZE + 1] = {};
@@ -76,9 +87,27 @@ class ChapterHtmlSlimParser {
   bool effectiveBold = false;
   bool effectiveItalic = false;
   bool effectiveUnderline = false;
+  // 原文でこの直後の語の前に空白があったか。CJK は 1 文字ずつを語に割る関係で
+  // nextWordContinues（＝スペース無しで前の語に続く）では区別できないため別に持つ。
+  bool pendingSpace = false;
   int tableDepth = 0;
   int tableRowIndex = 0;
   int tableColIndex = 0;
+
+  // <ol> / <ul> のネスト。<li> のマーカーを連番にするか中黒にするかを決めるために持つ。
+  // 4 段を超えるリストは実用上まれなので固定長配列にしてある（std::vector だと
+  // 章ごとにヒープを踏む。listDepth 自体は対称に増減させるので入れ子は壊れない）。
+  static constexpr int MAX_LIST_NESTING = 4;
+  struct ListContext {
+    uint16_t counter = 1;  // 次の <li> に振る番号
+    bool ordered = false;
+  };
+  ListContext listStack[MAX_LIST_NESTING];
+  int listDepth = 0;
+  // リストマーカーを出した直後か。次に来る語をマーカーに必ずくっつけて語間 0 にするための印。
+  // こうしないと語間が中身次第（CJK か欧文か、原文に空白があるか）で変わり、
+  // ぶら下げインデントの幅と本文の開始位置がずれる。
+  bool listMarkerPending = false;
 
   // Table grid buffering
   struct TableCellData {

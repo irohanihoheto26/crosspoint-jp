@@ -42,6 +42,9 @@ class TextBlock final : public Block {
   bool hasRuby() const;
   const std::vector<std::string>& getRubyTexts() const { return rubyTexts; }
   static int rubyFontId;  // アプリ層から設定されるルビフォントID（0=ルビ描画しない）
+  // <sup> / <sub> を描くための小さいフォントID。アプリ層が設定する。
+  // 0 のときは本文フォントのまま描く（位置もずらさない＝従来どおり）。
+  static int smallFontId;
   bool isEmpty() override { return words.empty(); }
   size_t wordCount() const { return words.size(); }
   // given a renderer works out where to break the words into lines

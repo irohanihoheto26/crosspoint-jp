@@ -761,6 +761,20 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       }
     }
 
+    // <sup> / <sub> 用の小さいフォント。ルビと同じ 8pt を使うが、ルビ表示の ON/OFF
+    // とは無関係に必要なので別に解決する。SD カードフォントを引けない場合は 0 のままで、
+    // TextBlock 側が本文フォントにフォールバックする（従来どおりの見た目）。
+    {
+      static constexpr uint8_t SCRIPT_FONT_SIZE_ENUM = 5;  // 8pt
+      int smallId = 0;
+      const auto& scriptDs = SETTINGS.getDirectionSettings(verticalMode);
+      if (scriptDs.sdFontFamilyName[0] != '\0' && SETTINGS.sdFontIdResolver) {
+        smallId =
+            SETTINGS.sdFontIdResolver(SETTINGS.sdFontResolverCtx, scriptDs.sdFontFamilyName, SCRIPT_FONT_SIZE_ENUM);
+      }
+      TextBlock::smallFontId = smallId;
+    }
+
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
     section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));

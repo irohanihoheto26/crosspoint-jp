@@ -1608,7 +1608,7 @@ int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style styl
   // Advance table fast-path for SD card fonts during layout
   auto sdIt = sdCardFonts_.find(fontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
-    return fp4::toPixel(sdIt->second->getAdvance(' ', static_cast<uint8_t>(style)));
+    return fp4::toPixel(sdIt->second->getAdvance(' ', static_cast<uint8_t>(style & EpdFontFamily::FONT_SELECT_MASK)));
   }
 
   const int effectiveFontId = getEffectiveFontId(fontId);
@@ -1649,7 +1649,7 @@ int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const 
   // so we return just the space advance without kerning.
   auto sdIt = sdCardFonts_.find(fontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
-    const int32_t advFP = sdIt->second->getAdvance(' ', static_cast<uint8_t>(style));
+    const int32_t advFP = sdIt->second->getAdvance(' ', static_cast<uint8_t>(style & EpdFontFamily::FONT_SELECT_MASK));
     const uint16_t scale = getSdCardFontScale(fontId);
     if (scale != 256) {
       return fp4::toPixel(static_cast<int32_t>(static_cast<int64_t>(advFP) * scale / 256));
@@ -1687,7 +1687,10 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
   auto sdIt = sdCardFonts_.find(fontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
     int32_t widthFP = 0;
-    const uint8_t styleIdx = static_cast<uint8_t>(style);
+    // 下線・上付き・下付きのビットは書体の選択には使われない（EpdFontFamily::getFont と同じ）。
+    // 落とさずに添字にすると advance テーブルが見つからず Regular にフォールバックしてしまい、
+    // 太字の下線付きテキストなどで計測幅と描画幅がずれる。
+    const uint8_t styleIdx = static_cast<uint8_t>(style & EpdFontFamily::FONT_SELECT_MASK);
     // フォントにグリフが無いと分かっている字は renderChar() が '?' を描く。幅もそれに
     // 合わせないとレイアウトが実際の描画より狭く見積もられ、行からはみ出す。
     // （builtinGlyphAdvanceX が組み込みフォントに対して担保しているのと同じ整合性）
@@ -1882,11 +1885,14 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
   // Check if this is an SD card font with vert data.
   // Lazy-load vert section on first vertical render (avoids changing prewarm API).
   SdCardFont* sdFont = nullptr;
+  // 装飾ビット（下線・上付き・下付き）は書体の選択に使わない。落とさずに渡すと
+  // style >= MAX_STYLES となって縦書き用字形の置換が黙って効かなくなる。
+  const auto vertStyleIdx = static_cast<uint8_t>(style & EpdFontFamily::FONT_SELECT_MASK);
   auto sdIt = sdCardFonts_.find(effectiveFontId);
   if (sdIt != sdCardFonts_.end()) {
     sdFont = sdIt->second;
     if (sdFont && sdFont->hasVertData()) {
-      sdFont->loadVertData(static_cast<uint8_t>(style));
+      sdFont->loadVertData(vertStyleIdx);
     }
   }
 
@@ -1913,9 +1919,9 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
     const EpdGlyph* vertGlyph = nullptr;
     const uint8_t* vertBitmap = nullptr;
     if (sdFont && VerticalTextUtils::shouldUseVertGlyph(cp)) {
-      vertGlyph = sdFont->getVertGlyph(cp, static_cast<uint8_t>(style));
+      vertGlyph = sdFont->getVertGlyph(cp, vertStyleIdx);
       if (vertGlyph) {
-        vertBitmap = sdFont->getVertBitmap(vertGlyph, static_cast<uint8_t>(style));
+        vertBitmap = sdFont->getVertBitmap(vertGlyph, vertStyleIdx);
       }
     }
 

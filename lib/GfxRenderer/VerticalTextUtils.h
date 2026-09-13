@@ -154,34 +154,8 @@ inline bool shouldUseVertGlyph(uint32_t cp) {
   return false;
 }
 
-// Kinsoku (禁則) processing for vertical text column breaks.
-// Returns true if this codepoint must NOT appear at the start of a column.
-inline bool isKinsokuHead(uint32_t cp) {
-  // Closing brackets and punctuation (行頭禁止)
-  if (cp == 0x3001 || cp == 0x3002) return true;                                  // 、。
-  if (cp == 0x300D || cp == 0x300F || cp == 0x3011) return true;                  // 」』】
-  if (cp == 0x3015 || cp == 0x3017 || cp == 0x3019 || cp == 0x301B) return true;  // 〕〗〙〛
-  if (cp == 0xFF09 || cp == 0xFF3D || cp == 0xFF5D) return true;                  // ）］｝
-  if (cp == 0xFF0C || cp == 0xFF0E) return true;                                  // ，．
-  if (cp == 0xFF01 || cp == 0xFF1F) return true;                                  // ！？
-  if (cp == 0xFF1A || cp == 0xFF1B) return true;                                  // ：；
-  if (cp == 0x3009 || cp == 0x300B) return true;                                  // 〉》
-  // Small kana (行頭禁止). Shares isSmallKana() so the two lists cannot drift:
-  // the open-coded version here used to omit ゎ ヮ ゕ ゖ ヵ ヶ and the Ainu
-  // small katakana, which JIS X 4051 treats the same as っ ゃ ゅ ょ.
-  if (isSmallKana(cp)) return true;
-  if (cp == 0x30FC) return true;  // ー
-  return false;
-}
-
-// Returns true if this codepoint must NOT appear at the end of a column.
-inline bool isKinsokuTail(uint32_t cp) {
-  // Opening brackets (行末禁止)
-  if (cp == 0x300C || cp == 0x300E || cp == 0x3010) return true;                  // 「『【
-  if (cp == 0x3014 || cp == 0x3016 || cp == 0x3018 || cp == 0x301A) return true;  // 〔〖〘〚
-  if (cp == 0xFF08 || cp == 0xFF3B || cp == 0xFF5B) return true;                  // （［｛
-  if (cp == 0x3008 || cp == 0x300A) return true;                                  // 〈《
-  return false;
-}
+// 禁則処理（行頭禁則・行末禁則・分離禁止）は横書きと縦書きで共通なので、
+// lib/Epub/Epub/Kinsoku.h に移した。小書き仮名の判定 isSmallKana() だけは
+// 縦書きのグリフ配置補正にも使うのでここに残してある。
 
 }  // namespace VerticalTextUtils

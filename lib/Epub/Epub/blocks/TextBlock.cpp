@@ -10,6 +10,7 @@
 #include "ImageBlock.h"
 
 int TextBlock::rubyFontId = 0;
+int TextBlock::smallFontId = 0;
 
 void TextBlock::collectCodepoints(std::vector<uint32_t>& out, size_t max) const {
   if (max == 0 || out.size() >= max) {
@@ -70,6 +71,18 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
     }
   }
 
+  // <sup> / <sub> 用の小さいフォントのグリフをプリロード（SDカードフォントの場合）。
+  // 本文フォントとは別のフォントIDなので、本文ぶんのプリロードでは用意されない。
+  if (smallFontId != 0 && smallFontId != effectiveFontId && renderer.isSdCardFont(smallFontId)) {
+    std::string scriptText;
+    for (size_t i = 0; i < words.size(); i++) {
+      if ((wordStyles[i] & EpdFontFamily::SCRIPT_MASK) != 0) scriptText += words[i];
+    }
+    if (!scriptText.empty()) {
+      renderer.ensureSdCardFontReady(smallFontId, scriptText.c_str(), 1u << EpdFontFamily::REGULAR);
+    }
+  }
+
   // Compute column width once for Sideways/TateChuYoko centering
   int columnWidth = 0;
   if (isVertical) {
@@ -80,6 +93,18 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
   for (size_t i = 0; i < words.size(); i++) {
     const EpdFontFamily::Style currentStyle = wordStyles[i];
+
+    // <sup> / <sub>: 小さいフォントに切り替え、行の上端／下端に寄せる。
+    // drawText の y は文字セルの上端なので、上付きはそのまま（小さい字が上に付く）、
+    // 下付きは本文と小フォントの行高の差だけ下げれば、余計な定数無しで収まる。
+    // smallFontId が 0（小さいフォントを用意できない）ときは本文フォントのまま描く。
+    const bool isScript = (currentStyle & EpdFontFamily::SCRIPT_MASK) != 0;
+    const int wordFontId = (isScript && smallFontId != 0) ? smallFontId : effectiveFontId;
+    int scriptYOffset = 0;
+    if (isScript && wordFontId != effectiveFontId && (currentStyle & EpdFontFamily::SUBSCRIPT) != 0) {
+      scriptYOffset = renderer.getLineHeight(effectiveFontId) - renderer.getLineHeight(wordFontId);
+      if (scriptYOffset < 0) scriptYOffset = 0;
+    }
 
     // インライン画像（本文中に 1 文字ぶんの大きさで置かれた外字など）。
     // パーサは縦書きのときだけこの語を作る（ChapterHtmlSlimParser の <img> 処理）。
@@ -119,7 +144,7 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
       bool isSingleCjk = (firstCp != 0 && *p == '\0' && VerticalTextUtils::isUprightInVertical(firstCp));
 
       if (isSingleCjk) {
-        renderer.drawTextVertical(effectiveFontId, wx, wy, w, true, currentStyle);
+        renderer.drawTextVertical(wordFontId, wx, wy, w, true, currentStyle);
         // 縦書きルビ描画（親文字の右側）
         if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty()) {
           const int rubyX = wx + columnWidth + 2;
@@ -134,25 +159,25 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         }
         if (allDigits && asciiCount <= 2) {
           // TateChuYoko: draw horizontally, centered in the column
-          const int textW = renderer.getTextAdvanceX(effectiveFontId, w, currentStyle);
+          const int textW = renderer.getTextAdvanceX(wordFontId, w, currentStyle);
           const int centerOffset = (columnWidth - textW) / 2;
-          renderer.drawText(effectiveFontId, wx + centerOffset, wy, w, true, currentStyle);
+          renderer.drawText(wordFontId, wx + centerOffset, wy, w, true, currentStyle);
         } else {
           // Sideways: draw rotated 90° CW, centered in the column.
           // Gap asymmetry: CJK rendering adds ascender offset (~11px from cell top
           // via drawText), while Sideways uses glyph->left (~1px). This creates
           // 0px gap before and ~12px gap after. Shift down by ascender/6 ≈ 6px
           // to equalize (derived from tracing actual pixel positions).
-          const int vertShift = renderer.getFontAscenderSize(effectiveFontId) / 3;
-          renderer.drawTextSideways(effectiveFontId, wx, wy + vertShift, w, true, currentStyle, columnWidth);
+          const int vertShift = renderer.getFontAscenderSize(wordFontId) / 3;
+          renderer.drawTextSideways(wordFontId, wx, wy + vertShift, w, true, currentStyle, columnWidth);
         }
       }
     } else {
       const int wordX = wordXpos[i] + x;
-      renderer.drawText(effectiveFontId, wordX, y, words[i].c_str(), true, currentStyle);
+      renderer.drawText(wordFontId, wordX, y + scriptYOffset, words[i].c_str(), true, currentStyle);
       // 横書きルビ描画
       if (rubyFontId != 0 && i < rubyTexts.size() && !rubyTexts[i].empty()) {
-        const int baseWidth = renderer.getTextAdvanceX(effectiveFontId, words[i].c_str(), currentStyle);
+        const int baseWidth = renderer.getTextAdvanceX(wordFontId, words[i].c_str(), currentStyle);
         const int rubyWidth = renderer.getTextWidth(rubyFontId, rubyTexts[i].c_str(), EpdFontFamily::REGULAR);
         // 親文字の中央に置く（中付き）。ルビが親文字より長いときは前後の文字にかぶせる
         // （JLREQ の「ルビの突出」）が、行頭・行末ではビューポートの外に出て欠けるので、
@@ -169,9 +194,9 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
       if ((currentStyle & EpdFontFamily::UNDERLINE) != 0) {
         const std::string& w = words[i];
-        const int fullWordWidth = renderer.getTextWidth(effectiveFontId, w.c_str(), currentStyle);
+        const int fullWordWidth = renderer.getTextWidth(wordFontId, w.c_str(), currentStyle);
         // y is the top of the text line; add ascender to reach baseline, then offset 2px below
-        const int underlineY = y + renderer.getFontAscenderSize(effectiveFontId) + 2;
+        const int underlineY = y + scriptYOffset + renderer.getFontAscenderSize(wordFontId) + 2;
 
         int startX = wordX;
         int underlineWidth = fullWordWidth;
@@ -180,8 +205,8 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
         if (w.size() >= 3 && static_cast<uint8_t>(w[0]) == 0xE2 && static_cast<uint8_t>(w[1]) == 0x80 &&
             static_cast<uint8_t>(w[2]) == 0x83) {
           const char* visiblePtr = w.c_str() + 3;
-          const int prefixWidth = renderer.getTextAdvanceX(effectiveFontId, "\xe2\x80\x83", currentStyle);
-          const int visibleWidth = renderer.getTextWidth(effectiveFontId, visiblePtr, currentStyle);
+          const int prefixWidth = renderer.getTextAdvanceX(wordFontId, "\xe2\x80\x83", currentStyle);
+          const int visibleWidth = renderer.getTextWidth(wordFontId, visiblePtr, currentStyle);
           startX = wordX + prefixWidth;
           underlineWidth = visibleWidth;
         }
@@ -193,9 +218,32 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
   // Draw full-width separator line below the block (used for h1/h2 headings).
   // Suppressed in vertical mode: horizontal lines are inappropriate for tategaki.
+  // コードブロックの枠線。行ごとに左右の縦線を引き、先頭行と最終行で上辺・下辺を閉じる。
+  // 縦書きでは横組み用の枠になってしまうので描かない（drawSeparatorBelow と同じ扱い）。
+  if (blockStyle.frameEdges != 0 && viewportWidth > 0 && !isVertical) {
+    const int frameTop = y;
+    const int frameHeight =
+        blockStyle.frameHeight > 0 ? blockStyle.frameHeight : renderer.getLineHeight(effectiveFontId);
+    const int frameBottom = frameTop + frameHeight;
+    const int left = viewportX;
+    const int right = viewportX + viewportWidth - 1;
+    if ((blockStyle.frameEdges & BlockStyle::FRAME_SIDES) != 0) {
+      renderer.drawLine(left, frameTop, left, frameBottom, true);
+      renderer.drawLine(right, frameTop, right, frameBottom, true);
+    }
+    if ((blockStyle.frameEdges & BlockStyle::FRAME_TOP) != 0) {
+      renderer.drawLine(left, frameTop, right, frameTop, true);
+    }
+    if ((blockStyle.frameEdges & BlockStyle::FRAME_BOTTOM) != 0) {
+      renderer.drawLine(left, frameBottom, right, frameBottom, true);
+    }
+  }
+
   if (blockStyle.drawSeparatorBelow && viewportWidth > 0 && !isVertical) {
     const int separatorY = y + renderer.getLineHeight(effectiveFontId) + 2;
-    renderer.drawLine(0, separatorY, viewportWidth, separatorY, true);
+    // ビューポート（余白を除いた描画領域）の幅いっぱいに引く。以前は画面左端の 0 から
+    // 引いていたので、左が余白にはみ出し右が余白の手前で終わる非対称な線になっていた。
+    renderer.drawLine(viewportX, separatorY, viewportX + viewportWidth, separatorY, true);
   }
 }
 
@@ -227,7 +275,10 @@ bool TextBlock::serialize(FsFile& file) const {
   serialization::writePod(file, blockStyle.textIndentDefined);
   serialization::writePod(file, blockStyle.fontId);
   serialization::writePod(file, blockStyle.drawSeparatorBelow);
+  serialization::writePod(file, blockStyle.frameEdges);
+  serialization::writePod(file, blockStyle.frameHeight);
   serialization::writePod(file, blockStyle.isListItem);
+  serialization::writePod(file, blockStyle.isHeading);
 
   // Vertical layout data
   serialization::writePod(file, isVertical);
@@ -282,7 +333,10 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   serialization::readPod(file, blockStyle.textIndentDefined);
   serialization::readPod(file, blockStyle.fontId);
   serialization::readPod(file, blockStyle.drawSeparatorBelow);
+  serialization::readPod(file, blockStyle.frameEdges);
+  serialization::readPod(file, blockStyle.frameHeight);
   serialization::readPod(file, blockStyle.isListItem);
+  serialization::readPod(file, blockStyle.isHeading);
 
   // Vertical layout data
   bool vertical = false;
