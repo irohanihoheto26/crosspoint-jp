@@ -34,6 +34,17 @@ struct BlockStyle {
   int fontId = 0;
   // Draw a full-width horizontal separator line below this block (used for h1/h2)
   bool drawSeparatorBelow = false;
+
+  // コードブロック（<pre>）の枠線。枠は行ごとに分けて描く: どの行も自分の高さぶんの
+  // 左右の縦線を引き、最初の行が上辺を、最後の行が下辺を足す。こうしておくと
+  // ページをまたいでも枠が途切れず、ブロック全体の高さを知らずに描ける。
+  static constexpr uint8_t FRAME_SIDES = 1;
+  static constexpr uint8_t FRAME_TOP = 2;
+  static constexpr uint8_t FRAME_BOTTOM = 4;
+  uint8_t frameEdges = 0;
+  // レイアウト時の行送り。縦線の長さに使う。行の配置と同じ値でないと枠が途切れるので、
+  // 描画側で計算し直さず addLineToPage が入れた値をそのまま使う。
+  uint16_t frameHeight = 0;
   // True for <li> elements — reduces extraParagraphSpacing
   bool isListItem = false;
 
@@ -75,6 +86,8 @@ struct BlockStyle {
     // Font override: child takes precedence
     combinedBlockStyle.fontId = (child.fontId != 0) ? child.fontId : fontId;
     combinedBlockStyle.drawSeparatorBelow = child.drawSeparatorBelow || drawSeparatorBelow;
+    combinedBlockStyle.frameEdges = static_cast<uint8_t>(child.frameEdges | frameEdges);
+    combinedBlockStyle.frameHeight = child.frameHeight != 0 ? child.frameHeight : frameHeight;
     combinedBlockStyle.isListItem = child.isListItem;
 
     return combinedBlockStyle;

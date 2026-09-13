@@ -54,6 +54,9 @@ constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
 
+// <pre> の中でタブ 1 つを何個の空白として扱うか。画面幅が狭いので 8 ではなく 4 にする。
+constexpr int PRE_TAB_WIDTH = 4;
+
 // Check if a Unicode codepoint is an invisible/zero-width character that should be skipped
 bool isInvisibleCodepoint(const uint32_t cp) {
   if (cp == 0xFEFF) return true;                  // BOM / Zero Width No-Break Space
@@ -232,6 +235,23 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   partWordBufferIndex = 0;
   nextWordContinues = false;
   pendingSpace = false;
+}
+
+// <pre> で保留していた改行を行区切りとして確定させる。
+// 2 つ以上続いていた場合は、間の行を空行として出す（コードの空行を潰さないため）。
+// 新しい行は枠の左右だけを持ち、上辺・下辺は <pre> の開始と終了で付ける。
+void ChapterHtmlSlimParser::preFlushPendingNewlines() {
+  while (prePendingNewlines > 0) {
+    auto lineStyle = currentTextBlock->getBlockStyle();
+    lineStyle.frameEdges = static_cast<uint8_t>(lineStyle.frameEdges & ~BlockStyle::FRAME_TOP);
+    lineStyle.marginTop = 0;  // 上の余白は <pre> の最初の行だけ
+    startNewTextBlock(lineStyle);
+    prePendingNewlines--;
+    if (prePendingNewlines > 0) {
+      // 空行。語が 1 つも無いブロックはページに積まれないので空白を 1 つ置く。
+      currentTextBlock->addWord(" ", EpdFontFamily::REGULAR);
+    }
+  }
 }
 
 // start a new text block if needed
@@ -724,6 +744,41 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Detect internal <a href="..."> links (footnotes, cross-references)
   // Note: <aside epub:type="footnote"> elements are rendered as normal content
   // without special handling. Links pointing to them are collected as footnotes.
+  // <pre>: 空白と改行を原文のまま出す。行は左揃えで、自動字下げもハイフネーションも止める。
+  // 等幅フォントは持っていないので字送りは揃わないが、1 段落に潰れてしまう今までよりは読める。
+  if (strcmp(name, "pre") == 0) {
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
+    const auto preEmSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
+    auto preStyle = BlockStyle::fromCssStyle(cssStyle, preEmSize, CssTextAlign::Left, self->viewportWidth);
+    preStyle.alignment = CssTextAlign::Left;
+    preStyle.textAlignDefined = true;
+    // textIndentDefined を立てて字下げ 0 にすることで、段落頭の自動インデント
+    // （EmSpace の挿入や CJK 1 文字ぶんの字下げ）を抑える。
+    preStyle.textIndent = 0;
+    preStyle.textIndentDefined = true;
+    preStyle.frameEdges = BlockStyle::FRAME_SIDES | BlockStyle::FRAME_TOP;
+    // 枠の前後の余白。marginTop/Bottom はブロック単位で効くので、
+    // 最初の行に上、最後の行（</pre> の処理）に下を付ける。
+    preStyle.marginTop = static_cast<int16_t>(preStyle.marginTop + self->renderer.getLineHeight(self->fontId) / 3);
+    // 枠線と本文がくっつかないように左右に余白を取る（枠は viewport の端に引かれる）
+    const auto framePadding = static_cast<int16_t>(std::max(4, self->renderer.getLineHeight(self->fontId) / 4));
+    preStyle.paddingLeft = static_cast<int16_t>(preStyle.paddingLeft + framePadding);
+    preStyle.paddingRight = static_cast<int16_t>(preStyle.paddingRight + framePadding);
+    self->prePendingNewlines = 0;
+    if (self->preUntilDepth == INT_MAX) {
+      self->preSavedHyphenation = self->hyphenationEnabled;
+      self->hyphenationEnabled = false;
+    }
+    self->preUntilDepth = std::min(self->preUntilDepth, self->depth);
+    self->preSkipLeadingNewline = true;
+    self->startNewTextBlock(preStyle);
+    self->updateEffectiveInlineStyle();
+    self->depth += 1;
+    return;
+  }
+
   // <hr>: 場面転換などの区切り線。h1/h2 の下線と同じ仕組み（drawSeparatorBelow）で描く。
   // 語が 1 つも無いブロックはページに積まれないので、幅ゼロの全角スペースではなく
   // 半角スペースを 1 つ持たせて 1 行分の高さを確保する。
@@ -1040,6 +1095,54 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
 
   int i = 0;
   while (i < len) {
+    // <pre> の中では空白と改行を原文のまま残す。
+    if (self->preUntilDepth < self->depth && isWhitespace(s[i])) {
+      if (s[i] == '\r') {
+        i++;
+        continue;
+      }
+      if (s[i] == '\n') {
+        if (self->partWordBufferIndex > 0) {
+          self->flushPartWordBuffer();
+        }
+        // <pre> の直後の改行 1 つは表示しない（HTML の規定）
+        if (self->preSkipLeadingNewline && self->currentTextBlock && self->currentTextBlock->isEmpty() &&
+            self->prePendingNewlines == 0) {
+          self->preSkipLeadingNewline = false;
+          i++;
+          continue;
+        }
+        self->preSkipLeadingNewline = false;
+        // ここでは行を切らず数えるだけ。次の中身が来たときに確定させる。
+        self->prePendingNewlines++;
+        i++;
+        continue;
+      }
+      // 空白・タブの連なりを 1 つの語にして、直前の語にくっつける。
+      // くっつけるのは、その手前で折り返すと行頭に空白が出てしまうため。
+      // 折り返しは次の語の前で起きる（下で nextWordContinues を戻している）。
+      self->preSkipLeadingNewline = false;
+      if (self->partWordBufferIndex > 0) {
+        self->flushPartWordBuffer();
+      }
+      self->preFlushPendingNewlines();
+      int spaces = 0;
+      while (i < len && (s[i] == ' ' || s[i] == '\t')) {
+        spaces += (s[i] == '\t') ? PRE_TAB_WIDTH : 1;
+        i++;
+      }
+      if (spaces > MAX_WORD_SIZE) spaces = MAX_WORD_SIZE;
+      const std::string spaceWord(static_cast<size_t>(spaces), ' ');
+      if (self->verticalMode) {
+        self->currentTextBlock->addWord(spaceWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright,
+                                        false, true, false);
+      } else {
+        self->currentTextBlock->addWord(spaceWord, EpdFontFamily::REGULAR, false, true, false);
+      }
+      self->nextWordContinues = false;  // 次の語の前では折り返してよい
+      continue;
+    }
+
     // Check for whitespace (ASCII only)
     if (isWhitespace(s[i])) {
       // Flush any buffered content as a word
@@ -1097,6 +1200,10 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
 
       i += 2;  // Skip the remaining two bytes (0x80 0xAF)
       continue;
+    }
+
+    if (self->prePendingNewlines > 0) {
+      self->preFlushPendingNewlines();
     }
 
     // Determine UTF-8 character length
@@ -1364,6 +1471,28 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->boldUntilDepth = INT_MAX;
   }
 
+  // Leaving pre
+  if (self->preUntilDepth == self->depth) {
+    self->preUntilDepth = INT_MAX;
+    self->preSkipLeadingNewline = false;
+    self->prePendingNewlines = 0;  // 末尾の改行は行にしない
+    self->hyphenationEnabled = self->preSavedHyphenation;
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
+    // 手元に残っている行が <pre> の最終行。ここで枠の下辺を付けてから流す。
+    if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+      auto lastStyle = self->currentTextBlock->getBlockStyle();
+      lastStyle.frameEdges = static_cast<uint8_t>(lastStyle.frameEdges | BlockStyle::FRAME_BOTTOM);
+      lastStyle.marginBottom =
+          static_cast<int16_t>(lastStyle.marginBottom + self->renderer.getLineHeight(self->fontId) / 3);
+      self->currentTextBlock->setBlockStyle(lastStyle);
+    }
+    // 直後のテキストが <pre> のスタイル（左揃え・字下げなし）を引きずらないよう
+    // ブロックを切り替える。currentTextBlock は常に非 null に保つ必要がある。
+    self->startNewTextBlock(BlockStyle());
+  }
+
   // Leaving sup / sub
   if (self->superscriptUntilDepth == self->depth) {
     self->superscriptUntilDepth = INT_MAX;
@@ -1530,6 +1659,14 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   const int effectiveFontId = (line->getBlockStyle().fontId != 0) ? line->getBlockStyle().fontId : fontId;
   const int lineHeight = renderer.getLineHeight(effectiveFontId) * lineCompression;
+
+  // 枠線の縦線は行の送りと同じ長さでないと隣の行との間で途切れる。
+  // 行送りを知っているのはここだけなので、この時点でブロックに入れておく。
+  if (line->getBlockStyle().frameEdges != 0) {
+    auto framedStyle = line->getBlockStyle();
+    framedStyle.frameHeight = static_cast<uint16_t>(lineHeight);
+    line->setBlockStyle(framedStyle);
+  }
 
   if (verticalMode) {
     // Vertical mode: columns placed right-to-left
@@ -1814,7 +1951,9 @@ void ChapterHtmlSlimParser::makePages() {
 
   // Extra paragraph spacing if enabled (default behavior)
   // List items get reduced spacing to avoid excessive gaps in TOC pages etc.
-  if (extraParagraphSpacing) {
+  // <pre> は 1 行が 1 ブロックなので、段落の追加アキを入れると行間が広がり、
+  // 行ごとに引いているコードブロックの枠線も途切れてしまう。
+  if (extraParagraphSpacing && blockStyle.frameEdges == 0) {
     currentPageNextY += blockStyle.isListItem ? (lineHeight / 6) : (lineHeight / 2);
   }
 }

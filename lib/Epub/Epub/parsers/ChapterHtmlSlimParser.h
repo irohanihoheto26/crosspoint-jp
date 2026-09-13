@@ -35,6 +35,15 @@ class ChapterHtmlSlimParser {
   int underlineUntilDepth = INT_MAX;
   int superscriptUntilDepth = INT_MAX;
   int subscriptUntilDepth = INT_MAX;
+  // <pre>: この深さより内側では空白と改行を原文のまま残す。
+  int preUntilDepth = INT_MAX;
+  bool preSkipLeadingNewline = false;  // <pre> 直後の改行 1 つは捨てる（HTML の規定）
+  bool preSavedHyphenation = false;    // <pre> の間だけハイフネーションを切るための退避
+  // 読んだが、まだ行として確定させていない改行の数。改行が来た時点ではなく次の中身が
+  // 来た時点で行を切ることで、</pre> に来たときに「最後の行」が手元に残る（枠の下辺を
+  // 付けるために必要）。末尾の改行はこの仕組みで自然に捨てられる。
+  int prePendingNewlines = 0;
+  void preFlushPendingNewlines();
   // buffer for building up words from characters, will auto break if longer than this
   // leave one char at end for null pointer
   char partWordBuffer[MAX_WORD_SIZE + 1] = {};

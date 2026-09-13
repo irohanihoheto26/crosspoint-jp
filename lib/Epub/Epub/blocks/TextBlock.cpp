@@ -218,6 +218,27 @@ void TextBlock::render(GfxRenderer& renderer, const int fontId, const int x, con
 
   // Draw full-width separator line below the block (used for h1/h2 headings).
   // Suppressed in vertical mode: horizontal lines are inappropriate for tategaki.
+  // コードブロックの枠線。行ごとに左右の縦線を引き、先頭行と最終行で上辺・下辺を閉じる。
+  // 縦書きでは横組み用の枠になってしまうので描かない（drawSeparatorBelow と同じ扱い）。
+  if (blockStyle.frameEdges != 0 && viewportWidth > 0 && !isVertical) {
+    const int frameTop = y;
+    const int frameHeight =
+        blockStyle.frameHeight > 0 ? blockStyle.frameHeight : renderer.getLineHeight(effectiveFontId);
+    const int frameBottom = frameTop + frameHeight;
+    const int left = viewportX;
+    const int right = viewportX + viewportWidth - 1;
+    if ((blockStyle.frameEdges & BlockStyle::FRAME_SIDES) != 0) {
+      renderer.drawLine(left, frameTop, left, frameBottom, true);
+      renderer.drawLine(right, frameTop, right, frameBottom, true);
+    }
+    if ((blockStyle.frameEdges & BlockStyle::FRAME_TOP) != 0) {
+      renderer.drawLine(left, frameTop, right, frameTop, true);
+    }
+    if ((blockStyle.frameEdges & BlockStyle::FRAME_BOTTOM) != 0) {
+      renderer.drawLine(left, frameBottom, right, frameBottom, true);
+    }
+  }
+
   if (blockStyle.drawSeparatorBelow && viewportWidth > 0 && !isVertical) {
     const int separatorY = y + renderer.getLineHeight(effectiveFontId) + 2;
     // ビューポート（余白を除いた描画領域）の幅いっぱいに引く。以前は画面左端の 0 から
@@ -254,6 +275,8 @@ bool TextBlock::serialize(FsFile& file) const {
   serialization::writePod(file, blockStyle.textIndentDefined);
   serialization::writePod(file, blockStyle.fontId);
   serialization::writePod(file, blockStyle.drawSeparatorBelow);
+  serialization::writePod(file, blockStyle.frameEdges);
+  serialization::writePod(file, blockStyle.frameHeight);
   serialization::writePod(file, blockStyle.isListItem);
 
   // Vertical layout data
@@ -309,6 +332,8 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   serialization::readPod(file, blockStyle.textIndentDefined);
   serialization::readPod(file, blockStyle.fontId);
   serialization::readPod(file, blockStyle.drawSeparatorBelow);
+  serialization::readPod(file, blockStyle.frameEdges);
+  serialization::readPod(file, blockStyle.frameHeight);
   serialization::readPod(file, blockStyle.isListItem);
 
   // Vertical layout data

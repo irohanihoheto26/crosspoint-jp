@@ -90,6 +90,16 @@ bool startsWithIdeographicSpace(const std::vector<std::string>& words) {
   return !words.empty() && words.front().compare(0, 3, "\xe3\x80\x80") == 0;
 }
 
+// 空白だけでできた語か。<pre> の字下げのように、空白そのものを語として持つ場合、
+// その前後にさらに語間を足すと空白が二重になる。
+bool isSpaceOnlyWord(const std::string& word) {
+  if (word.empty()) return false;
+  for (const char c : word) {
+    if (c != ' ') return false;
+  }
+  return true;
+}
+
 // Check if a word is a single CJK character (used for zero-spacing between adjacent CJK words)
 bool isSingleCjkWord(const std::string& word) {
   if (word.empty()) return false;
@@ -251,15 +261,16 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   // 全ての文字の間に語間が入ってしまう。条件は 2 つ:
   //   - 原文でその境界に空白が無かった（あれば普通の語間として残す。
   //     「第一章 序」のように CJK の間に半角スペースを置いた原文で空白が消えない）
-  //   - どちらかが CJK 1 文字（「あい」も「5m<sup>2</sup>、」もブラウザは詰めて出す）
+  //   - どちらかが CJK 1 文字（「あい」も「5m<sup>2</sup>、」もブラウザは詰めて出す）か、
+  //     どちらかが空白だけの語（<pre> の字下げ。語間を足すと空白が二重になる）
   std::vector<bool> cjkAdjVec;
   cjkAdjVec.reserve(words.size());
-  bool prevIsCjk = false;
+  bool prevTight = false;
   for (size_t i = 0; i < words.size(); ++i) {
-    const bool isCjk = isSingleCjkWord(words[i]);
+    const bool tight = isSingleCjkWord(words[i]) || isSpaceOnlyWord(words[i]);
     const bool hasSpace = i < wordSpaceBefore.size() && wordSpaceBefore[i];
-    cjkAdjVec.push_back(i > 0 && !hasSpace && (isCjk || prevIsCjk));
-    prevIsCjk = isCjk;
+    cjkAdjVec.push_back(i > 0 && !hasSpace && (tight || prevTight));
+    prevTight = tight;
   }
 
   std::vector<size_t> lineBreakIndices;
@@ -695,13 +706,14 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
     // 分割された前半と後半の間は同じ語の続きなので空白は入らない。
     // 分割後の語は Latin（ハイフネーション対象）なので CJK 隣接にはならないが、
     // フォールバック分割で CJK を割ることもあるため実際に判定しておく。
-    const bool prefixIsCjk = isSingleCjkWord(words[wordIndex]);
-    const bool remainderIsCjk = isSingleCjkWord(remainder);
+    const auto isTight = [](const std::string& w) { return isSingleCjkWord(w) || isSpaceOnlyWord(w); };
+    const bool prefixTight = isTight(words[wordIndex]);
+    const bool remainderTight = isTight(remainder);
     if (wordIndex > 0) {
-      (*cjkAdjVec)[wordIndex] = (prefixIsCjk || isSingleCjkWord(words[wordIndex - 1])) &&
+      (*cjkAdjVec)[wordIndex] = (prefixTight || isTight(words[wordIndex - 1])) &&
                                 (wordIndex >= wordSpaceBefore.size() || !wordSpaceBefore[wordIndex]);
     }
-    cjkAdjVec->insert(cjkAdjVec->begin() + wordIndex + 1, remainderIsCjk || prefixIsCjk);
+    cjkAdjVec->insert(cjkAdjVec->begin() + wordIndex + 1, remainderTight || prefixTight);
   }
 
   wordWidths[wordIndex] = static_cast<uint16_t>(chosenWidth);
