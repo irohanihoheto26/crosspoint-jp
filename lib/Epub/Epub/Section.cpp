@@ -18,7 +18,9 @@ namespace {
 //             重ねない。バイナリ構造は不変だがレイアウト結果が変わるので再生成させる。
 // Version 34: 縦書きの本文中画像をインライン語／列を消費するブロックとして配置（#107）。
 //             同じくレイアウト結果のみの変更。
-constexpr uint8_t SECTION_FILE_VERSION = 34;
+// Version 35: 横書きにも禁則処理（行頭禁則・行末禁則・分離禁止）を適用し、縦書きの禁則文字も
+//             JIS X 4051 準拠に拡張。同じくレイアウト結果のみの変更。
+constexpr uint8_t SECTION_FILE_VERSION = 35;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

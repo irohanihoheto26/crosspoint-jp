@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "InlineImage.h"
+#include "Kinsoku.h"
 #include "SectionBuildPerf.h"
 #include "hyphenation/Hyphenator.h"
 
@@ -20,28 +21,6 @@ namespace {
 // Soft hyphen byte pattern used throughout EPUBs (UTF-8 for U+00AD).
 constexpr char SOFT_HYPHEN_UTF8[] = "\xC2\xAD";
 constexpr size_t SOFT_HYPHEN_BYTES = 2;
-
-// Returns the first rendered codepoint of a word (skipping leading soft hyphens).
-uint32_t firstCodepoint(const std::string& word) {
-  const auto* ptr = reinterpret_cast<const unsigned char*>(word.c_str());
-  while (true) {
-    const uint32_t cp = utf8NextCodepoint(&ptr);
-    if (cp == 0) return 0;
-    if (cp != 0x00AD) return cp;  // skip soft hyphens
-  }
-}
-
-// Returns the last codepoint of a word by scanning backward for the start of the last UTF-8 sequence.
-uint32_t lastCodepoint(const std::string& word) {
-  if (word.empty()) return 0;
-  // UTF-8 continuation bytes start with 10xxxxxx; scan backward to find the leading byte.
-  size_t i = word.size() - 1;
-  while (i > 0 && (static_cast<uint8_t>(word[i]) & 0xC0) == 0x80) {
-    --i;
-  }
-  const auto* ptr = reinterpret_cast<const unsigned char*>(word.c_str() + i);
-  return utf8NextCodepoint(&ptr);
-}
 
 bool containsSoftHyphen(const std::string& word) { return word.find(SOFT_HYPHEN_UTF8) != std::string::npos; }
 
@@ -362,11 +341,9 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     verticalIndent = cjkCharAdvance > 0 ? cjkCharAdvance : lineHeight;
   }
 
-  // Helper: get the first codepoint of a word string
-  auto firstCodepoint = [](const std::string& w) -> uint32_t {
-    const auto* p = reinterpret_cast<const unsigned char*>(w.c_str());
-    return utf8NextCodepoint(&p);
-  };
+  // 禁則処理で参照する継続フラグ。wordContinues と同じ内容だが、
+  // adjustBreakForKinsoku() が std::vector<bool> を取るのでここで用意する。
+  const std::vector<bool> continuesVec(wordContinues.begin(), wordContinues.end());
 
   // First pass: compute column boundaries without emitting.
   // columnEnds[i] is the exclusive end index of column i (= start of column i+1).
@@ -376,15 +353,8 @@ void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fo
     int currentY = verticalIndent;
     for (size_t i = 0; i < words.size(); i++) {
       if (currentY + wordHeights[i] > columnHeight && i > columnStart) {
-        size_t breakAt = i;
-        // Kinsoku-head pullback (e.g., closing brackets, small kana cannot start a column)
-        while (breakAt > columnStart + 1 && VerticalTextUtils::isKinsokuHead(firstCodepoint(words[breakAt]))) {
-          breakAt--;
-        }
-        // Kinsoku-tail pullback (e.g., opening brackets cannot end a column)
-        if (breakAt > columnStart + 1 && VerticalTextUtils::isKinsokuTail(firstCodepoint(words[breakAt - 1]))) {
-          breakAt--;
-        }
+        // 禁則処理（追い出し）。行頭禁則・行末禁則・分離禁止を収束するまで交互に見る。
+        const size_t breakAt = Kinsoku::adjustBreak(words, continuesVec, i, columnStart);
         columnEnds.push_back(breakAt);
         columnStart = breakAt;
         currentY = 0;
@@ -520,6 +490,10 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
       break;
     }
 
+    // 禁則処理（追い出し）。収束しなかった場合は元の位置が返るので、
+    // 継続語（スペース無しで前の語に続く語）の保護は下のループで別途かける。
+    currentIndex = Kinsoku::adjustBreak(words, continuesVec, currentIndex, lineStart);
+
     while (currentIndex > lineStart + 1 && currentIndex < wordWidths.size() && continuesVec[currentIndex]) {
       --currentIndex;
     }
@@ -567,6 +541,7 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
     const size_t lineStart = currentIndex;
     const int effectivePageWidth = isFirstLine ? pageWidth - effectiveIndent : pageWidth;
     int lineWidth = 0;
+    bool hyphenatedAtBreak = false;
 
     while (currentIndex < wordWidths.size()) {
       const bool isFirstWord = currentIndex == lineStart;
@@ -588,6 +563,7 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
                                                      allowFallbackBreaks, &continuesVec, &wordIsCjkVec)) {
         lineWidth += spacing + wordWidths[currentIndex];
         ++currentIndex;
+        hyphenatedAtBreak = true;
         break;
       }
 
@@ -596,6 +572,12 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
         ++currentIndex;
       }
       break;
+    }
+
+    // 禁則処理（追い出し）。直前でハイフン分割した行では行わない。追い出すと
+    // 挿入済みのハイフンごと次行へ送られ、行の途中に "exam-ple" が現れてしまう。
+    if (!hyphenatedAtBreak) {
+      currentIndex = Kinsoku::adjustBreak(words, continuesVec, currentIndex, lineStart);
     }
 
     while (currentIndex > lineStart + 1 && currentIndex < wordWidths.size() && continuesVec[currentIndex]) {
