@@ -165,7 +165,7 @@ const inlineChapters: { title: string; body: string }[] = [
   {
     // 整形のために原文が折り返してある XHTML。日本語の EPUB では珍しくない。
     // 改行は CSS Text のセグメント改行で、和文どうしの間では取り除かれる（空白にしない）。
-    title: "四 整形された XHTML の改行",
+    title: "三 整形された XHTML の改行",
     body: `<p>${
       "吾輩は猫である。名前はまだ無い。どこで生れたか頓と見当がつかぬ。何でも薄暗いじめじめした所でにゃあにゃあ泣いていた事だけは記憶している。"
         .replace(/(.{16})/g, "$1\n")
@@ -179,7 +179,7 @@ const inlineChapters: { title: string; body: string }[] = [
 <p>${"Latin words wrapped\nin the source must\nstill keep their spaces."}</p>`,
   },
   {
-    title: "三 CJK の間の半角スペース",
+    title: "四 CJK の間の半角スペース",
     body: `<p>第一章 序 という見出し語。空白が残ること。</p>
 <p>山田 太郎、鈴木 花子、佐藤 次郎。</p>
 <p>空白の無い普通の文はこれまでどおり字間が空かないこと。吾輩は猫である。</p>`,
