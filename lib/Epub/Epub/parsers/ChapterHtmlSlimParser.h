@@ -33,6 +33,8 @@ class ChapterHtmlSlimParser {
   int boldUntilDepth = INT_MAX;
   int italicUntilDepth = INT_MAX;
   int underlineUntilDepth = INT_MAX;
+  int superscriptUntilDepth = INT_MAX;
+  int subscriptUntilDepth = INT_MAX;
   // buffer for building up words from characters, will auto break if longer than this
   // leave one char at end for null pointer
   char partWordBuffer[MAX_WORD_SIZE + 1] = {};
@@ -76,6 +78,9 @@ class ChapterHtmlSlimParser {
   bool effectiveBold = false;
   bool effectiveItalic = false;
   bool effectiveUnderline = false;
+  // 原文でこの直後の語の前に空白があったか。CJK は 1 文字ずつを語に割る関係で
+  // nextWordContinues（＝スペース無しで前の語に続く）では区別できないため別に持つ。
+  bool pendingSpace = false;
   int tableDepth = 0;
   int tableRowIndex = 0;
   int tableColIndex = 0;

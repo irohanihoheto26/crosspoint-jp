@@ -22,7 +22,9 @@ namespace {
 //             JIS X 4051 準拠に拡張。同じくレイアウト結果のみの変更。
 // Version 36: <ol> の項目に連番マーカーを振り、入れ子リストを字下げする。
 //             同じくレイアウト結果のみの変更。
-constexpr uint8_t SECTION_FILE_VERSION = 36;
+// Version 37: <hr> の区切り線、<sup>/<sub> を小さいフォントで描画、CJK どうしの字間を
+//             原文に空白があるときだけ空ける。均等割りも空白を取り置いてから配る。
+constexpr uint8_t SECTION_FILE_VERSION = 37;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

@@ -4,6 +4,7 @@
 //   deno run -A scripts/generate_layout_test_epubs.ts
 //   → test/epubs/ja_kinsoku.epub  禁則処理（行頭禁則・行末禁則・分離禁止）
 //   → test/epubs/ja_lists.epub    リスト（<ol> の連番・入れ子・start / value）
+//   → test/epubs/ja_inline.epub   <hr> / <sup> / <sub> / CJK 間の半角スペース
 //
 // ja_kinsoku.epub の各段落は約物を一定周期で含むので、1 行あたりの文字数が何文字でも
 // どこかの行で「行頭に約物が来る」状態が必ず発生する。修正前後の比較用。
@@ -120,6 +121,26 @@ const listChapters: { title: string; body: string }[] = [
     body: `<ol start="8">${
       Array.from({ length: 8 }, (_, i) => `<li>項目その${8 + i}</li>`).join("")
     }</ol>`,
+  },
+];
+
+// --- ja_inline.epub ---------------------------------------------------------
+
+const inlineChapters: { title: string; body: string }[] = [
+  {
+    title: "一 hr と sup / sub",
+    body: `<p>次の行に区切り線が入る。</p>
+<hr/>
+<p>水は H<sub>2</sub>O、二酸化炭素は CO<sub>2</sub>。面積は 5m<sup>2</sup>、体積は 3m<sup>3</sup>。</p>
+<p>脚注の番号<sup>1</sup>は本文<sup>23</sup>と区別できること。</p>
+<hr/>
+<p>区切り線のあと。</p>`,
+  },
+  {
+    title: "二 CJK の間の半角スペース",
+    body: `<p>第一章 序 という見出し語。空白が残ること。</p>
+<p>山田 太郎、鈴木 花子、佐藤 次郎。</p>
+<p>空白の無い普通の文はこれまでどおり字間が空かないこと。吾輩は猫である。</p>`,
   },
 ];
 
@@ -264,4 +285,8 @@ await writeZip(
 await writeZip(
   `${repoRoot}/test/epubs/ja_lists.epub`,
   buildEpub("リスト表示テスト", "lists-test-0001", listChapters),
+);
+await writeZip(
+  `${repoRoot}/test/epubs/ja_inline.epub`,
+  buildEpub("インライン書式テスト", "inline-test-0001", inlineChapters),
 );

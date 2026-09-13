@@ -190,6 +190,8 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   const bool isBold = boldUntilDepth < depth || effectiveBold;
   const bool isItalic = italicUntilDepth < depth || effectiveItalic;
   const bool isUnderline = underlineUntilDepth < depth || effectiveUnderline;
+  const bool isSuperscript = superscriptUntilDepth < depth;
+  const bool isSubscript = subscriptUntilDepth < depth;
 
   // Combine style flags using bitwise OR
   EpdFontFamily::Style fontStyle = EpdFontFamily::REGULAR;
@@ -201,6 +203,12 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   }
   if (isUnderline) {
     fontStyle = static_cast<EpdFontFamily::Style>(fontStyle | EpdFontFamily::UNDERLINE);
+  }
+  // <sub> が <sup> の内側にあるような壊れた入れ子では上付きを優先する
+  if (isSuperscript) {
+    fontStyle = static_cast<EpdFontFamily::Style>(fontStyle | EpdFontFamily::SUPERSCRIPT);
+  } else if (isSubscript) {
+    fontStyle = static_cast<EpdFontFamily::Style>(fontStyle | EpdFontFamily::SUBSCRIPT);
   }
 
   // flush the buffer
@@ -217,17 +225,19 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
     if (allDigits && asciiCharCount <= 2) {
       vb = VerticalTextUtils::VerticalBehavior::TateChuYoko;
     }
-    currentTextBlock->addWord(partWordBuffer, fontStyle, vb, false, nextWordContinues);
+    currentTextBlock->addWord(partWordBuffer, fontStyle, vb, false, nextWordContinues, pendingSpace);
   } else {
-    currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues);
+    currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues, pendingSpace);
   }
   partWordBufferIndex = 0;
   nextWordContinues = false;
+  pendingSpace = false;
 }
 
 // start a new text block if needed
 void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   nextWordContinues = false;  // New block = new paragraph, no continuation
+  pendingSpace = false;
   if (currentTextBlock) {
     // already have a text block running and it is empty - just reuse it
     if (currentTextBlock->isEmpty()) {
@@ -714,6 +724,24 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Detect internal <a href="..."> links (footnotes, cross-references)
   // Note: <aside epub:type="footnote"> elements are rendered as normal content
   // without special handling. Links pointing to them are collected as footnotes.
+  // <hr>: 場面転換などの区切り線。h1/h2 の下線と同じ仕組み（drawSeparatorBelow）で描く。
+  // 語が 1 つも無いブロックはページに積まれないので、幅ゼロの全角スペースではなく
+  // 半角スペースを 1 つ持たせて 1 行分の高さを確保する。
+  // 縦書きでは TextBlock::render が横罫を抑止するので、空き 1 列になる。
+  if (strcmp(name, "hr") == 0) {
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
+    self->startNewTextBlock(BlockStyle());
+    BlockStyle hrStyle;
+    hrStyle.drawSeparatorBelow = true;
+    self->addLineToPage(std::make_shared<TextBlock>(std::vector<std::string>{" "}, std::vector<int16_t>{0},
+                                                    std::vector<EpdFontFamily::Style>{EpdFontFamily::REGULAR},
+                                                    hrStyle));
+    self->depth += 1;
+    return;
+  }
+
   if (strcmp(name, "a") == 0) {
     const char* href = getAttribute(atts, "href");
 
@@ -878,6 +906,18 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     }
     self->inlineStyleStack.push_back(entry);
     self->updateEffectiveInlineStyle();
+  } else if (strcmp(name, "sup") == 0 || strcmp(name, "sub") == 0) {
+    // 上付き・下付き。小さいフォントに切り替えるだけなので inlineStyleStack は使わず、
+    // <b> / <i> と同じ深さ追跡で扱う。
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+      self->nextWordContinues = true;
+    }
+    if (strcmp(name, "sup") == 0) {
+      self->superscriptUntilDepth = std::min(self->superscriptUntilDepth, self->depth);
+    } else {
+      self->subscriptUntilDepth = std::min(self->subscriptUntilDepth, self->depth);
+    }
   } else if (matches(name, BOLD_TAGS, NUM_BOLD_TAGS)) {
     // Flush buffer before style change so preceding text gets current style
     if (self->partWordBufferIndex > 0) {
@@ -1008,6 +1048,11 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       }
       // Whitespace is a real word boundary -- reset continuation state
       self->nextWordContinues = false;
+      // 次の語の前に空白があったことを覚えておく。ブロック先頭の空白は
+      // 字下げではなく HTML の整形由来なので無視する。
+      if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+        self->pendingSpace = true;
+      }
       i++;
       continue;
     }
@@ -1092,10 +1137,12 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         cjkWord[j] = s[i + j];
       }
       if (self->verticalMode) {
-        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright);
+        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, VerticalTextUtils::VerticalBehavior::Upright,
+                                        false, false, self->pendingSpace);
       } else {
-        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR);
+        self->currentTextBlock->addWord(cjkWord, EpdFontFamily::REGULAR, false, false, self->pendingSpace);
       }
+      self->pendingSpace = false;
       i += charLen;
       // 中間flush: 1 回の characterData 呼び出しで CJK 単語が大量追加される場合、
       // characterData 末尾の flush 判定では間に合わず words vector の realloc で abort する。
@@ -1173,10 +1220,13 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   const bool willPopStyleStack =
       !self->inlineStyleStack.empty() && self->inlineStyleStack.back().depth == self->depth - 1;
   const bool willClearBold = self->boldUntilDepth == self->depth - 1;
+  const bool willClearScript =
+      self->superscriptUntilDepth == self->depth - 1 || self->subscriptUntilDepth == self->depth - 1;
   const bool willClearItalic = self->italicUntilDepth == self->depth - 1;
   const bool willClearUnderline = self->underlineUntilDepth == self->depth - 1;
 
-  const bool styleWillChange = willPopStyleStack || willClearBold || willClearItalic || willClearUnderline;
+  const bool styleWillChange =
+      willPopStyleStack || willClearBold || willClearItalic || willClearUnderline || willClearScript;
   const bool headerOrBlockTag = isHeaderOrBlock(name);
   const bool tableStructuralTag = isTableStructuralTag(name);
 
@@ -1312,6 +1362,14 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   // Leaving bold tag
   if (self->boldUntilDepth == self->depth) {
     self->boldUntilDepth = INT_MAX;
+  }
+
+  // Leaving sup / sub
+  if (self->superscriptUntilDepth == self->depth) {
+    self->superscriptUntilDepth = INT_MAX;
+  }
+  if (self->subscriptUntilDepth == self->depth) {
+    self->subscriptUntilDepth = INT_MAX;
   }
 
   // Leaving italic tag
