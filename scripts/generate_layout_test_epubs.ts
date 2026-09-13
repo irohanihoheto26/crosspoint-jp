@@ -5,6 +5,7 @@
 //   → test/epubs/ja_kinsoku.epub  禁則処理（行頭禁則・行末禁則・分離禁止）
 //   → test/epubs/ja_lists.epub    リスト（<ol> の連番・入れ子・start / value）
 //   → test/epubs/ja_inline.epub   <hr> / <sup> / <sub> / CJK 間の半角スペース
+//   → test/epubs/ja_headings.epub h1〜h6 と本文の間のアキ
 //
 // ja_kinsoku.epub の各段落は約物を一定周期で含むので、1 行あたりの文字数が何文字でも
 // どこかの行で「行頭に約物が来る」状態が必ず発生する。修正前後の比較用。
@@ -166,6 +167,48 @@ const inlineChapters: { title: string; body: string }[] = [
   },
 ];
 
+// --- ja_headings.epub -------------------------------------------------------
+
+// 見出しと本文の間のアキを見るためのもの。各見出しの下に段落を 2 つ置いてあるので、
+// 「見出し → 本文」のアキと「段落 → 段落」のアキを同じ画面で見比べられる。
+const P1 = "見出しのすぐ下の段落。ここと見出しの距離を見る。行送りを広げた設定ほど差が出るので、設定の行間は普段使っている値のままで確認する。";
+const P2 = "2 つ目の段落。ここと 1 つ目の段落の距離が、段落どうしのアキ。見出しの下のアキはこれより少し広いくらいが適当で、倍もあると離れて見える。";
+
+const headingChapters: { title: string; body: string }[] = [
+  {
+    title: "一 h1 h2 h3",
+    body: `<h1>大見出し h1</h1>
+<p>${esc(P1)}</p>
+<p>${esc(P2)}</p>
+<h2>中見出し h2</h2>
+<p>${esc(P1)}</p>
+<p>${esc(P2)}</p>
+<h3>小見出し h3</h3>
+<p>${esc(P1)}</p>
+<p>${esc(P2)}</p>`,
+  },
+  {
+    title: "二 h4 h5 h6",
+    body: `<h4>見出し h4</h4>
+<p>${esc(P1)}</p>
+<p>${esc(P2)}</p>
+<h5>見出し h5</h5>
+<p>${esc(P1)}</p>
+<p>${esc(P2)}</p>
+<h6>見出し h6</h6>
+<p>${esc(P1)}</p>
+<p>${esc(P2)}</p>`,
+  },
+  {
+    title: "三 見出しが続く場合",
+    body: `<h2>中見出し h2</h2>
+<h3>すぐ下に小見出し h3</h3>
+<p>${esc(P1)}</p>
+<h3>段落のあとにまた小見出し h3</h3>
+<p>${esc(P2)}</p>`,
+  },
+];
+
 // --- EPUB 組み立て ----------------------------------------------------------
 
 type Chapter = { title: string; body: string };
@@ -311,4 +354,8 @@ await writeZip(
 await writeZip(
   `${repoRoot}/test/epubs/ja_inline.epub`,
   buildEpub("インライン書式テスト", "inline-test-0001", inlineChapters),
+);
+await writeZip(
+  `${repoRoot}/test/epubs/ja_headings.epub`,
+  buildEpub("見出しのアキ テスト", "headings-test-0001", headingChapters),
 );
