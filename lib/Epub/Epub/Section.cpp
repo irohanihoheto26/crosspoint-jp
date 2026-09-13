@@ -27,7 +27,9 @@ namespace {
 // Version 38: <pre> の空白・改行の保持とコードブロックの枠線（BlockStyle に枠の情報を追加）。
 // Version 39: リスト項目のぶら下げ幅をマーカー語の実測幅に合わせる（折り返し位置が変わる）。
 // Version 40: 見出しブロックに段落の追加アキを入れない（BlockStyle に isHeading を追加）。
-constexpr uint8_t SECTION_FILE_VERSION = 40;
+// Version 41: コードレビューの指摘反映。原文の改行を語間にしない（CSS Text のセグメント改行）、
+//             <pre> の枠の上辺・下辺を折り返した行に引かない、ぶら下げ幅の補正を textIndent だけに。
+constexpr uint8_t SECTION_FILE_VERSION = 41;
 // Minimum free heap required before attempting to build section pages.
 // Section building involves heavy allocations (Page, TextBlock, PageLine, etc.)
 // and on ESP32 without C++ exceptions, allocation failure calls abort().

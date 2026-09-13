@@ -920,18 +920,36 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         // マーカーと本文の間の空きは、レイアウトが入れる語間ではなくマーカー語そのものに持たせる。
         // 語間は中身次第（CJK どうしなら 0、欧文なら空白 1 つ）で変わるので、それを当てにすると
         // ぶら下げ幅と本文の開始位置がずれて、折り返した行だけ余分に下がってしまう。
+        const size_t markerTextLen = strlen(marker);
+
+        // 幅を測る前に、マーカーに使う字の advance を用意しておく。SD カードフォントの
+        // advance テーブルはブロック単位で用意される（ParsedText の ensureSdCardFontReady）が、
+        // ここはまだその手前。用意しないと lookupAdvance が NotCached を返して幅 0 になり、
+        // ぶら下げ幅が狂ううえ、下のループが上限まで空白を足してしまう。
+        if (self->renderer.isSdCardFont(self->fontId)) {
+          self->renderer.ensureSdCardFontReady(self->fontId, "0123456789. \xe2\x80\xa2", 1u << EpdFontFamily::REGULAR);
+        }
+
         // 空きを 1 つ入れたうえで、行として意味のある字下げ（行高の半分）に届くまで足す。
+        // 縦書きでは事情が違う: ぶら下げインデント（paddingLeft / textIndent）は
+        // layoutVerticalColumns が使わないので詰め物は効かず、列方向の空きになるだけ。
+        // よって縦書きでは足さない。
+        // 幅が 0 に見えるフォントでも暴走しないよう、足す数には上限を置く。
+        static constexpr size_t MAX_MARKER_PADDING = 4;
         const int minIndent = self->renderer.getLineHeight(self->fontId) / 2;
-        size_t markerLen = strlen(marker);
-        int markerW = 0;
-        do {
-          marker[markerLen++] = ' ';
-          marker[markerLen] = '\0';
-          markerW = self->renderer.getTextAdvanceX(self->fontId, marker, EpdFontFamily::REGULAR);
-        } while (markerW < minIndent && markerLen + 1 < sizeof(marker));
+        size_t markerLen = markerTextLen;
+        int markerW = self->renderer.getTextAdvanceX(self->fontId, marker, EpdFontFamily::REGULAR);
+        if (!self->verticalMode) {
+          do {
+            marker[markerLen++] = ' ';
+            marker[markerLen] = '\0';
+            markerW = self->renderer.getTextAdvanceX(self->fontId, marker, EpdFontFamily::REGULAR);
+          } while (markerW < minIndent && markerLen - markerTextLen < MAX_MARKER_PADDING);
+        }
         // ぶら下げ幅はマーカー語の実幅そのもの。次の語は語間 0 でくっつくので、
         // 折り返した行の頭が本文 1 文字目にちょうど揃う。
-        const auto hangIndent = static_cast<int16_t>(markerW);
+        // 万一 0 になっても字下げが消えないよう最低値を入れる。
+        const auto hangIndent = static_cast<int16_t>(std::max(markerW, minIndent));
         // 入れ子の分の字下げ。<ol> / <ul> 自体はブロックとして扱っていないので CSS の
         // margin-left が効かず、これを入れないと内側のリストが外側と同じ位置に並ぶ。
         const int nestIndent = (self->listDepth > 1 ? self->listDepth - 1 : 0) * hangIndent;
@@ -943,7 +961,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         if (self->verticalMode) {
           // 縦書きでは wordVerticalBehaviors が words と並列なので、ここで積まないと
           // 以降の語の縦書き挙動が 1 つずつずれる。1〜2 桁の番号は縦中横にする。
-          const auto vb = (listCtx != nullptr && listCtx->ordered && strlen(marker) <= 3)
+          // 詰め物の空白を含まない番号部分の長さで判定する（"1." = 2、"10." = 3）
+          const auto vb = (listCtx != nullptr && listCtx->ordered && markerTextLen <= 3)
                               ? VerticalTextUtils::VerticalBehavior::TateChuYoko
                               : VerticalTextUtils::VerticalBehavior::Upright;
           self->currentTextBlock->addWord(marker, EpdFontFamily::REGULAR, vb);
@@ -1169,13 +1188,28 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       }
       // Whitespace is a real word boundary -- reset continuation state
       self->nextWordContinues = false;
-      // 次の語の前に空白があったことを覚えておく。ブロック先頭の空白は
-      // 字下げではなく HTML の整形由来なので無視する。リストマーカーの直後も同じで、
-      // <li> の後ろの改行や字下げを語間にしてしまうとぶら下げ幅とずれる。
-      if (self->currentTextBlock && !self->currentTextBlock->isEmpty() && !self->listMarkerPending) {
+
+      // 空白の連なりをまとめて読む。改行を含むかどうかで扱いが変わるため。
+      bool sawSegmentBreak = false;
+      while (i < len && isWhitespace(s[i])) {
+        if (s[i] == '\n' || s[i] == '\r') sawSegmentBreak = true;
+        i++;
+      }
+
+      // 改行を含む空白は「行の折り返し」であって空白ではない（CSS Text のセグメント改行）。
+      // 和文どうしの間の改行は取り除かれるのが正しく、空白にしてはいけない。整形のために
+      // 折り返してある XHTML は日本語の EPUB では珍しくないので、ここを間違えると
+      // 原文の折り返し位置すべてに半角空白が入ってしまう。
+      // 改行の前後にある空白も同じ扱いになる（CSS は改行に隣接する空白を先に落とす）ので、
+      // 連なり全体を見て決める。
+      //
+      // 実際の空白（' ' / '\t'）だけなら語間として残す。ブロック先頭の空白は字下げではなく
+      // HTML の整形由来なので無視する。リストマーカーの直後も同じで、<li> の後ろの空白を
+      // 語間にしてしまうとぶら下げ幅とずれる。
+      if (!sawSegmentBreak && self->currentTextBlock && !self->currentTextBlock->isEmpty() &&
+          !self->listMarkerPending) {
         self->pendingSpace = true;
       }
-      i++;
       continue;
     }
 

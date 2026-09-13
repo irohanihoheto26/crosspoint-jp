@@ -253,21 +253,18 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   auto wordWidths = calculateWordWidths(renderer, fontId);
 
-  // リスト項目のぶら下げ幅を、マーカー語の実測幅に合わせ直す。
-  // パーサは <li> を見た時点でこの幅を見積もるが、その時点では SD カードフォントの
-  // advance テーブルがこのブロック用に用意されていない（用意するのは上の
-  // ensureSdCardFontReady）。見積もりと実測がずれると、折り返した行の頭が
-  // 本文 1 文字目からその差だけ外れる。paddingLeft と textIndent を同じ量だけ
-  // 動かすので、マーカーの位置は変わらず折り返し位置だけが揃う。
+  // リスト項目のぶら下げ幅を、マーカー語の実測幅に合わせ直す（保険）。
+  // パーサは <li> を見た時点でこの幅を見積もる。その時点で SD カードフォントの advance を
+  // 用意させてあるので普通は一致するが、フォントが字を持たない等でずれても
+  // 折り返し位置が外れないようにしておく。
+  // 動かすのは textIndent だけ。paddingLeft はブロックの左端であり、呼び出し元が
+  // それを使って折り返し幅（effectiveWidth）を先に確定させているので、ここで動かすと
+  // 行が右へはみ出す。textIndent だけならマーカーが実測幅ぶん左へ出るだけで、
+  // 折り返した行の頭は本文 1 文字目に揃う。
   if (!hangIndentAligned && blockStyle.isListItem && blockStyle.textIndentDefined && blockStyle.textIndent < 0 &&
       !wordWidths.empty()) {
     hangIndentAligned = true;
-    const auto measured = static_cast<int16_t>(wordWidths[0]);
-    const auto delta = static_cast<int16_t>(measured + blockStyle.textIndent);  // 実測 − 見積もり
-    if (delta != 0) {
-      blockStyle.paddingLeft = static_cast<int16_t>(blockStyle.paddingLeft + delta);
-      blockStyle.textIndent = static_cast<int16_t>(-measured);
-    }
+    blockStyle.textIndent = static_cast<int16_t>(-static_cast<int16_t>(wordWidths[0]));
   }
 
   // Build indexed continues vector from the parallel list for O(1) access during layout
@@ -828,6 +825,21 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     }
   }
 
+  // コードブロックの枠。左右の縦線は全ての行に引くが、上辺はブロックの最初の行だけ、
+  // 下辺は最後の行だけ。1 つの <pre> 行が折り返した場合も含めて視覚上の行で数える。
+  // includeLastLine=false（中間 flush）のときは isLastLine が立たないので、
+  // 下辺は最終回の呼び出しまで付かない。
+  BlockStyle lineStyle = blockStyle;
+  if (lineStyle.frameEdges != 0) {
+    if (frameTopEmitted) {
+      lineStyle.frameEdges = static_cast<uint8_t>(lineStyle.frameEdges & ~BlockStyle::FRAME_TOP);
+    }
+    if (!isLastLine) {
+      lineStyle.frameEdges = static_cast<uint8_t>(lineStyle.frameEdges & ~BlockStyle::FRAME_BOTTOM);
+    }
+    frameTopEmitted = true;
+  }
+
   processLine(std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos), std::move(lineWordStyles),
-                                          blockStyle, std::vector<int16_t>{}, false, std::move(lineRubyTexts)));
+                                          lineStyle, std::vector<int16_t>{}, false, std::move(lineRubyTexts)));
 }

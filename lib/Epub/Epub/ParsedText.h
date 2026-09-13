@@ -29,6 +29,9 @@ class ParsedText {
   // リスト項目のぶら下げ幅をマーカー語の実測幅に合わせ直したか。
   // 中間 flush で同じブロックに対して複数回レイアウトが走るので、1 度だけ行う。
   bool hangIndentAligned = false;
+  // コードブロックの枠の上辺を既に出したか。1 つの <pre> 行が折り返して複数行になったとき、
+  // 上辺・下辺を全ての行に引くと枠の中に横線が並んでしまう。
+  bool frameTopEmitted = false;
 
   void applyParagraphIndent();
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth, int spaceWidth,

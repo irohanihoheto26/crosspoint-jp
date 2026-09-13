@@ -89,8 +89,10 @@ struct BlockStyle {
     // Font override: child takes precedence
     combinedBlockStyle.fontId = (child.fontId != 0) ? child.fontId : fontId;
     combinedBlockStyle.drawSeparatorBelow = child.drawSeparatorBelow || drawSeparatorBelow;
-    combinedBlockStyle.frameEdges = static_cast<uint8_t>(child.frameEdges | frameEdges);
-    combinedBlockStyle.frameHeight = child.frameHeight != 0 ? child.frameHeight : frameHeight;
+    // 枠線は子の値をそのまま使う（OR で合成しない）。空の <pre> を抜けたあと
+    // startNewTextBlock がこのブロックを使い回すと、OR では枠が次の段落に残ってしまう。
+    combinedBlockStyle.frameEdges = child.frameEdges;
+    combinedBlockStyle.frameHeight = child.frameHeight;
     combinedBlockStyle.isListItem = child.isListItem;
     combinedBlockStyle.isHeading = child.isHeading;
 

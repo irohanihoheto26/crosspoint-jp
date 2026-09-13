@@ -1885,11 +1885,14 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
   // Check if this is an SD card font with vert data.
   // Lazy-load vert section on first vertical render (avoids changing prewarm API).
   SdCardFont* sdFont = nullptr;
+  // 装飾ビット（下線・上付き・下付き）は書体の選択に使わない。落とさずに渡すと
+  // style >= MAX_STYLES となって縦書き用字形の置換が黙って効かなくなる。
+  const auto vertStyleIdx = static_cast<uint8_t>(style & EpdFontFamily::FONT_SELECT_MASK);
   auto sdIt = sdCardFonts_.find(effectiveFontId);
   if (sdIt != sdCardFonts_.end()) {
     sdFont = sdIt->second;
     if (sdFont && sdFont->hasVertData()) {
-      sdFont->loadVertData(static_cast<uint8_t>(style));
+      sdFont->loadVertData(vertStyleIdx);
     }
   }
 
@@ -1916,9 +1919,9 @@ void GfxRenderer::drawTextVertical(const int fontId, const int x, const int y, c
     const EpdGlyph* vertGlyph = nullptr;
     const uint8_t* vertBitmap = nullptr;
     if (sdFont && VerticalTextUtils::shouldUseVertGlyph(cp)) {
-      vertGlyph = sdFont->getVertGlyph(cp, static_cast<uint8_t>(style));
+      vertGlyph = sdFont->getVertGlyph(cp, vertStyleIdx);
       if (vertGlyph) {
-        vertBitmap = sdFont->getVertBitmap(vertGlyph, static_cast<uint8_t>(style));
+        vertBitmap = sdFont->getVertBitmap(vertGlyph, vertStyleIdx);
       }
     }
 
