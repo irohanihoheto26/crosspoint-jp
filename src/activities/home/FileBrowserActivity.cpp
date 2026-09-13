@@ -25,6 +25,14 @@
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
 
+// このディレクトリの冊数がこれ以下なら、インデックスを作らず 1 冊ずつ直接引く。
+// 直接引きは N×M（N=このディレクトリの冊数、M=蔵書全体のキャッシュ数）、
+// インデックス構築は N に依らず M。蔵書が数百冊になると、10 冊のフォルダを
+// 開くたびに数百ディレクトリを走査することになるため、小さいほうを選ぶ。
+// 境界は概算: 直接引き 1 冊 ≒ .crosspoint の線形検索 1 回 + progress.bin の
+// オープン、インデックス 1 件 ≒ ディレクトリのオープンと数エントリの読み出し。
+constexpr size_t DIRECT_STATUS_LOOKUP_MAX_BOOKS = 48;
+
 // dir 以下の空ディレクトリを再帰的に削除する。
 // リーフ（末端）から順に削除するため、ネストした空ディレクトリも連鎖的に削除される。
 // 戻り値: dir 自身が空になったか（dir 自体の削除は、ハンドルを閉じられる呼び出し側が行う）
@@ -204,23 +212,51 @@ void FileBrowserActivity::loadFiles() {
     return;
   }
 
-  // 各書籍ファイルの読書状態を取得。
-  // 1冊ずつ progress.bin を開くと /.crosspoint のディレクトリ検索が
-  // ファイル数×キャッシュ数ぶん走って一覧表示が極端に遅くなるため、
-  // キャッシュを1回だけ走査したインデックスから引く（Issue #136）。
-  // インデックスはこのスコープを抜けた時点で解放される。
-  const ReadingStatusIndex statusIndex("/.crosspoint");
   std::string fullBase = basepath;
   if (fullBase.back() != '/') fullBase += '/';
   fileStatuses.reserve(files.size());
+
+  // 各書籍ファイルの読書状態を取得。引き方は 2 通りあり、どちらが安いかは
+  // このディレクトリの冊数 N と蔵書全体のキャッシュ数 M で決まる。
+  //
+  //   直接引く      … 1冊につき /.crosspoint/<prefix><hash>/progress.bin を開く。
+  //                    FAT のディレクトリ検索は線形走査なので N×M に比例する。
+  //   インデックス  … /.crosspoint を 1 回だけ順次走査して全冊ぶんを集める（Issue #136）。
+  //                    N に依らず M 回のディレクトリオープンがかかる。
+  //
+  // 蔵書が増えると M は数百になる。10 冊のフォルダを開くたびに数百ディレクトリを
+  // 走査するのは明らかに損なので、冊数が少ないうちは直接引く。
+  // 一度インデックスを作ったあと（＝大きいディレクトリを見たあと）は、
+  // 作り直さずそのまま使うほうが常に安い。
+  const size_t bookCount = static_cast<size_t>(std::count_if(files.begin(), files.end(), [](const std::string& file) {
+    return FsHelpers::hasEpubExtension(file) || FsHelpers::hasXtcExtension(file);
+  }));
+
+  const uint32_t statusStartMs = millis();
+  if (!statusIndex && bookCount <= DIRECT_STATUS_LOOKUP_MAX_BOOKS) {
+    std::transform(files.begin(), files.end(), std::back_inserter(fileStatuses),
+                   [&](const std::string& file) { return getReadingStatus(fullBase + file, "/.crosspoint"); });
+    LOG_DBG("FBA", "%s: %u books, status direct %lums", basepath.c_str(), static_cast<unsigned>(bookCount),
+            static_cast<unsigned long>(millis() - statusStartMs));
+    return;
+  }
+
+  const bool hadIndex = static_cast<bool>(statusIndex);
+  if (!statusIndex) {
+    statusIndex = std::make_unique<ReadingStatusIndex>("/.crosspoint");
+  }
   std::transform(files.begin(), files.end(), std::back_inserter(fileStatuses),
-                 [&](const std::string& file) { return statusIndex.lookup(fullBase + file); });
+                 [&](const std::string& file) { return statusIndex->lookup(fullBase + file); });
+  LOG_DBG("FBA", "%s: %u books, status index(%s) %lums", basepath.c_str(), static_cast<unsigned>(bookCount),
+          hadIndex ? "reused" : "built", static_cast<unsigned long>(millis() - statusStartMs));
 }
 
 void FileBrowserActivity::onEnter() {
   Activity::onEnter();
 
   selectorIndex = 0;
+  // リーダーから戻ってきたときは読書状態が変わっているので作り直す
+  statusIndex.reset();
 
   auto root = Storage.open(basepath.c_str());
   if (!root) {

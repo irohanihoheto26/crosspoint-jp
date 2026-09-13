@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,12 @@ class FileBrowserActivity final : public Activity {
   std::string basepath = "/";
   std::vector<std::string> files;
   std::vector<ReadingStatus> fileStatuses;
+
+  // 読書状態のインデックス。作るのに /.crosspoint を丸ごと走査するので、
+  // ディレクトリを移動しても作り直さず、この画面にいる間は使い回す。
+  // 読書状態が変わりうるのはリーダーから戻ってきたときだけで、そのときは
+  // onEnter() が呼ばれるのでそこで捨てる。
+  std::unique_ptr<ReadingStatusIndex> statusIndex;
 
   // Data loading
   void loadFiles();

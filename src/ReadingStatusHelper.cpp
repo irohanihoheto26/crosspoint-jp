@@ -1,5 +1,6 @@
 #include "ReadingStatusHelper.h"
 
+#include <Arduino.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -86,6 +87,8 @@ ReadingStatus readStatusFromCacheDir(FsFile& bookDir, bool isEpub) {
 }  // namespace
 
 ReadingStatusIndex::ReadingStatusIndex(const std::string& cacheDir) {
+  const uint32_t startMs = millis();
+  uint32_t scannedDirs = 0;
   auto root = Storage.open(cacheDir.c_str());
   if (!root || !root.isDirectory()) {
     if (root) root.close();
@@ -126,6 +129,7 @@ ReadingStatusIndex::ReadingStatusIndex(const std::string& cacheDir) {
     }
 
     const ReadingStatus status = readStatusFromCacheDir(entry, isEpub);
+    scannedDirs++;
     entry.close();
 
     // 未読はキャッシュが無い場合と同じ扱いなので保持しない（メモリ節約）
@@ -142,8 +146,9 @@ ReadingStatusIndex::ReadingStatusIndex(const std::string& cacheDir) {
   std::sort(epubEntries.begin(), epubEntries.end(), byKey);
   std::sort(xtcEntries.begin(), xtcEntries.end(), byKey);
 
-  LOG_DBG("RSH", "Reading status index: %u epub, %u xtc", static_cast<unsigned>(epubEntries.size()),
-          static_cast<unsigned>(xtcEntries.size()));
+  LOG_DBG("RSH", "Reading status index: %u epub, %u xtc (scanned %u cache dirs in %lums)",
+          static_cast<unsigned>(epubEntries.size()), static_cast<unsigned>(xtcEntries.size()),
+          static_cast<unsigned>(scannedDirs), static_cast<unsigned long>(millis() - startMs));
 }
 
 ReadingStatus ReadingStatusIndex::lookup(const std::string& filepath) const {
