@@ -80,6 +80,17 @@ class ChapterHtmlSlimParser {
   int tableRowIndex = 0;
   int tableColIndex = 0;
 
+  // <ol> / <ul> のネスト。<li> のマーカーを連番にするか中黒にするかを決めるために持つ。
+  // 4 段を超えるリストは実用上まれなので固定長配列にしてある（std::vector だと
+  // 章ごとにヒープを踏む。listDepth 自体は対称に増減させるので入れ子は壊れない）。
+  static constexpr int MAX_LIST_NESTING = 4;
+  struct ListContext {
+    uint16_t counter = 1;  // 次の <li> に振る番号
+    bool ordered = false;
+  };
+  ListContext listStack[MAX_LIST_NESTING];
+  int listDepth = 0;
+
   // Table grid buffering
   struct TableCellData {
     std::string text;

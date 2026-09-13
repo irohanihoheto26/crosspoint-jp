@@ -263,6 +263,27 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     return;
   }
 
+  // <ol> / <ul>: <li> のマーカーを連番にするか中黒にするかを決めるためにネストを記録する。
+  // 要素自体は中身を持たないので、この後の分岐はそのまま通す。display:none の判定より
+  // 手前に置いてあるのは、endElement 側の pop と対称にするため（隠しリストも push する）。
+  if (strcmp(name, "ol") == 0 || strcmp(name, "ul") == 0) {
+    const bool ordered = strcmp(name, "ol") == 0;
+    uint16_t start = 1;
+    if (ordered && atts != nullptr) {
+      for (int i = 0; atts[i]; i += 2) {
+        if (strcmp(atts[i], "start") == 0) {
+          const long v = strtol(atts[i + 1], nullptr, 10);
+          if (v > 0 && v <= 9999) start = static_cast<uint16_t>(v);
+        }
+      }
+    }
+    if (self->listDepth < MAX_LIST_NESTING) {
+      self->listStack[self->listDepth].ordered = ordered;
+      self->listStack[self->listDepth].counter = start;
+    }
+    self->listDepth++;
+  }
+
   // Extract class, style, and id attributes
   std::string classAttr;
   std::string styleAttr;
@@ -786,17 +807,50 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         }
         auto liBlockStyle = userAlignmentBlockStyle;
         liBlockStyle.isListItem = true;
-        const int bulletW = self->renderer.getTextAdvanceX(self->fontId, "\xe2\x80\xa2", EpdFontFamily::REGULAR);
+
+        // リストマーカー。<ol> の中なら連番、それ以外は中黒。
+        // <ol type="a"> などの英字・ローマ数字は未対応で、いずれも十進で振る。
+        char marker[12] = "\xe2\x80\xa2";  // •
+        ListContext* listCtx = (self->listDepth > 0 && self->listDepth <= MAX_LIST_NESTING)
+                                   ? &self->listStack[self->listDepth - 1]
+                                   : nullptr;
+        if (listCtx != nullptr && listCtx->ordered) {
+          // <li value="N"> は以降の連番の起点も動かす（HTML と同じ）。
+          if (atts != nullptr) {
+            for (int i = 0; atts[i]; i += 2) {
+              if (strcmp(atts[i], "value") == 0) {
+                const long v = strtol(atts[i + 1], nullptr, 10);
+                if (v > 0 && v <= 9999) listCtx->counter = static_cast<uint16_t>(v);
+              }
+            }
+          }
+          snprintf(marker, sizeof(marker), "%u.", static_cast<unsigned>(listCtx->counter));
+          if (listCtx->counter < 9999) listCtx->counter++;
+        }
+
+        const int markerW = self->renderer.getTextAdvanceX(self->fontId, marker, EpdFontFamily::REGULAR);
         const int spaceW = self->renderer.getTextAdvanceX(self->fontId, " ", EpdFontFamily::REGULAR);
         // Ensure a visually meaningful indent (at least half line height)
         const int minIndent = self->renderer.getLineHeight(self->fontId) / 2;
-        const auto hangIndent = static_cast<int16_t>(std::max(bulletW + spaceW, minIndent));
-        liBlockStyle.paddingLeft = static_cast<int16_t>(liBlockStyle.paddingLeft + hangIndent);
+        const auto hangIndent = static_cast<int16_t>(std::max(markerW + spaceW, minIndent));
+        // 入れ子の分の字下げ。<ol> / <ul> 自体はブロックとして扱っていないので CSS の
+        // margin-left が効かず、これを入れないと内側のリストが外側と同じ位置に並ぶ。
+        const int nestIndent = (self->listDepth > 1 ? self->listDepth - 1 : 0) * hangIndent;
+        liBlockStyle.paddingLeft = static_cast<int16_t>(liBlockStyle.paddingLeft + hangIndent + nestIndent);
         liBlockStyle.textIndent = static_cast<int16_t>(-hangIndent);
         liBlockStyle.textIndentDefined = true;
         self->startNewTextBlock(liBlockStyle);
         self->updateEffectiveInlineStyle();
-        self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR);
+        if (self->verticalMode) {
+          // 縦書きでは wordVerticalBehaviors が words と並列なので、ここで積まないと
+          // 以降の語の縦書き挙動が 1 つずつずれる。1〜2 桁の番号は縦中横にする。
+          const auto vb = (listCtx != nullptr && listCtx->ordered && strlen(marker) <= 3)
+                              ? VerticalTextUtils::VerticalBehavior::TateChuYoko
+                              : VerticalTextUtils::VerticalBehavior::Upright;
+          self->currentTextBlock->addWord(marker, EpdFontFamily::REGULAR, vb);
+        } else {
+          self->currentTextBlock->addWord(marker, EpdFontFamily::REGULAR);
+        }
       } else {
         self->startNewTextBlock(userAlignmentBlockStyle);
         self->updateEffectiveInlineStyle();
@@ -1125,6 +1179,12 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   const bool styleWillChange = willPopStyleStack || willClearBold || willClearItalic || willClearUnderline;
   const bool headerOrBlockTag = isHeaderOrBlock(name);
   const bool tableStructuralTag = isTableStructuralTag(name);
+
+  // <ol> / <ul> のネストを戻す。depth はまだ減っていないので、この要素自身の深さは
+  // depth - 1。startElement が push を飛ばす条件（skip の内側）と対称にする。
+  if ((strcmp(name, "ol") == 0 || strcmp(name, "ul") == 0) && self->skipUntilDepth >= self->depth - 1) {
+    if (self->listDepth > 0) self->listDepth--;
+  }
 
   if (self->tableDepth > 1 && strcmp(name, "table") == 0) {
     self->tableDepth -= 1;
