@@ -2636,12 +2636,24 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
                          fontFamily.getData(style) == fontFamily.getData(EpdFontFamily::REGULAR);
   const int boldPasses = synthBold ? 2 : 1;
 
+  // 縮小時に元画素を何個まとめるか。dst 画素 i は src の [i*256/scale, (i+1)*256/scale) を覆う。
+  // 最近傍で1点だけ拾うと細い画が丸ごと落ちて字がかすれるので、この範囲を面積平均してから
+  // 1bit 化する（ルビ・小見出し・表など、ベースと違うポイント数で使う字で効く）。
+  // 拡大時は範囲が1画素未満になり、従来どおりの最近傍に落ちる。
+  const auto srcSpan = [scale](const int dst, const int limit) {
+    const int from = dst * 256 / scale;
+    int to = (dst + 1) * 256 / scale;
+    if (to <= from) to = from + 1;
+    return std::make_pair(from, to > limit ? limit : to);
+  };
+
   if (bitmap != nullptr) {
     for (int pass = 0; pass < boldPasses; pass++) {
       const int xBoldOffset = pass;  // 2nd pass: 1px right shift for bold
       for (int glyphY = 0; glyphY < drawH; glyphY++) {
         const int srcY = needsScale ? (glyphY * 256 / scale) : glyphY;
         if (srcY >= baseH) continue;
+        const auto [srcY0, srcY1] = needsScale ? srcSpan(glyphY, baseH) : std::make_pair(srcY, srcY + 1);
         const int screenY = *y - drawTop + glyphY;
         for (int glyphX = 0; glyphX < drawW; glyphX++) {
           const int srcX = needsScale ? (glyphX * 256 / scale) : glyphX;
@@ -2651,9 +2663,25 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
           const int screenX = *x + drawLeft + glyphX + xBoldOffset;
 
           if (is2Bit) {
-            const uint8_t byte = bitmap[pixelPosition / 4];
-            const uint8_t bit_index = (3 - pixelPosition % 4) * 2;
-            const uint8_t bmpVal = 3 - ((byte >> bit_index) & 0x3);
+            uint8_t bmpVal;
+            if (needsScale) {
+              const auto [srcX0, srcX1] = srcSpan(glyphX, baseW);
+              uint32_t inkSum = 0;
+              uint32_t count = 0;
+              for (int sy = srcY0; sy < srcY1; sy++) {
+                const int rowBase = sy * baseW;
+                for (int sx = srcX0; sx < srcX1; sx++) {
+                  const int pp = rowBase + sx;
+                  inkSum += (bitmap[pp / 4] >> ((3 - pp % 4) * 2)) & 0x3;
+                  count++;
+                }
+              }
+              bmpVal = count ? static_cast<uint8_t>(3 - (inkSum + count / 2) / count) : 3;
+            } else {
+              const uint8_t byte = bitmap[pixelPosition / 4];
+              const uint8_t bit_index = (3 - pixelPosition % 4) * 2;
+              bmpVal = 3 - ((byte >> bit_index) & 0x3);
+            }
 
             if (renderMode == BW) {
               if (isGlyphInk(bmpVal)) {
