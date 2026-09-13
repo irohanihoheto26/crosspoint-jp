@@ -140,6 +140,7 @@ python3 scripts/generate_cjk_ui_font.py \
   --size 20 \
   --font /path/to/SourceHanSansJP-Medium.otf \
   --force-pt 20 --force-descent 3 \
+  --descender-rows 3 \
   --inherit-header lib/GfxRenderer/cjk_ui_font_20.h \
   --codepoints-file scripts/codepoints_baseline.txt \
   --codepoints-file scripts/codepoints_jis_level1.txt \
@@ -153,6 +154,15 @@ releases report very different hhea metrics (880/-120 vs 1160/-288); without the
 override the automatic fit would pick `pt=17, baseline=15` and shrink every UI
 glyph by 15% while shifting it 2px up. The header comment records the metrics
 that must be reproduced.
+
+`--descender-rows 3` is **required**. The baseline sits on row 17 of the 20-row
+cell, so only 3 rows are left below it — not enough for `g j p q y Q , / ; @`
+and friends, whose descenders were being cut off mid-stroke (36 glyphs in the
+current character set). Making every one of the 7,488 cells 3 rows taller would
+cost 67 KB of flash, so the overflowing rows are stored in a sparse side table
+instead (`CJK_UI_DESCENDER_*`, ~400 bytes), which `GfxRenderer` draws right
+below the cell. The main bitmap array is byte-for-byte the same with or without
+this flag.
 
 `--inherit-header` copies glyphs the source font does not cover from the previous
 header instead of emitting `.notdef` tofu. The JP subset OTF is missing 54 Latin

@@ -163,7 +163,7 @@ def load_font_fitting_cell(font_path, pixel_size, force_pt=None, force_descent=N
     return None, None, None, None
 
 def generate_font_header(font_path, pixel_size, output_path, translations_dir=None, codepoints_files=None,
-                         force_pt=None, force_descent=None, inherit_header=None):
+                         force_pt=None, force_descent=None, inherit_header=None, descender_rows=0):
     """Generate CJK UI font header file."""
 
     font, pt_size, ascent, descent = load_font_fitting_cell(font_path, pixel_size, force_pt, force_descent)
@@ -189,6 +189,7 @@ def generate_font_header(font_path, pixel_size, output_path, translations_dir=No
     bitmaps = []
     inherited_cps = []
     uncovered_cps = []
+    descenders = []  # [(codepoint, はみ出し行のバイト列)]
 
     # Fixed baseline (from top): align all glyphs to the same baseline to avoid jitter
     baseline = pixel_size - descent
@@ -197,8 +198,11 @@ def generate_font_header(font_path, pixel_size, output_path, translations_dir=No
     for char in chars:
         cp = ord(char)
 
-        # Create image for character
-        img = Image.new('1', (pixel_size, pixel_size), 0)
+        # Create image for character.
+        # セルの下に descender_rows 行ぶん余白を足して描く。g/p/y のように
+        # ベースラインより深く下がる字は、この余分な行に落ちたぶんだけを
+        # 疎テーブル側に積む（本体のセルは従来どおり pixel_size 行のまま）。
+        img = Image.new('1', (pixel_size, pixel_size + descender_rows), 0)
         draw = ImageDraw.Draw(img)
 
         # Get character bounding box
@@ -240,12 +244,26 @@ def generate_font_header(font_path, pixel_size, output_path, translations_dir=No
                             byte_val |= (1 << (7 - bit))
                 bitmap_bytes.append(byte_val)
 
+        # はみ出し行（セルの下 descender_rows 行）を別に取り出す
+        descender_bytes = []
+        for row in range(pixel_size, pixel_size + descender_rows):
+            for byte_idx in range(bytes_per_row):
+                byte_val = 0
+                for bit in range(8):
+                    px = byte_idx * 8 + bit
+                    if px < pixel_size and img.getpixel((px, row)):
+                        byte_val |= (1 << (7 - bit))
+                descender_bytes.append(byte_val)
+
         # The source font may not cover this character (region-specific subset
         # OTFs drop Latin Extended / Cyrillic), in which case Pillow draws
         # .notdef - a tofu box. Reuse the previously shipped glyph instead.
         # Characters that are legitimately blank (U+3000 ideographic space) are
         # absent from the inherit map and stay blank.
         uncovered = (font_cmap is not None and cp not in font_cmap) or not any(bitmap_bytes)
+        if uncovered:
+            # .notdef（豆腐）の下端を拾ってしまうので、はみ出しは無かったことにする
+            descender_bytes = []
         if uncovered and cp in inherited:
             bitmap_bytes = inherited[cp]
             inherited_cps.append(cp)
@@ -267,6 +285,8 @@ def generate_font_header(font_path, pixel_size, output_path, translations_dir=No
             # CJK: use full width
             widths.append(pixel_size)
         bitmaps.append(bitmap_bytes)
+        if any(descender_bytes):
+            descenders.append((cp, descender_bytes))
 
     if inherited_cps:
         print(f"  Inherited {len(inherited_cps)} glyphs missing from the source font: "
@@ -306,6 +326,12 @@ static constexpr uint8_t CJK_UI_FONT_HEIGHT = {pixel_size};
 static constexpr uint8_t CJK_UI_FONT_BYTES_PER_ROW = {bytes_per_row};
 static constexpr uint8_t CJK_UI_FONT_BYTES_PER_CHAR = {bytes_per_char};
 static constexpr uint16_t CJK_UI_FONT_GLYPH_COUNT = {len(chars)};
+
+// ベースラインより下がセルに収まらない字（g p y j Q , など）の追加行。
+// 全 {len(chars)} 字のセルを高くすると 1 行あたり {bytes_per_row * len(chars)} バイト増えるが、
+// 実際にはみ出すのは {len(descenders)} 字だけなので、その字のぶんだけを疎テーブルで持つ。
+static constexpr uint8_t CJK_UI_DESCENDER_ROWS = {descender_rows};
+static constexpr uint16_t CJK_UI_DESCENDER_COUNT = {len(descenders)};
 
 // Codepoint lookup table (sorted for binary search)
 static const uint16_t CJK_UI_CODEPOINTS[] PROGMEM = {{
@@ -347,6 +373,28 @@ static const uint16_t CJK_UI_CODEPOINTS[] PROGMEM = {{
             f.write('\n')
         f.write('};\n\n')
 
+        # Write descender overflow table
+        f.write('// Descender overflow rows (cell rows '
+                f'{pixel_size}..{pixel_size + descender_rows - 1}), sorted by codepoint\n')
+        f.write('static const uint16_t CJK_UI_DESCENDER_CODEPOINTS[] PROGMEM = {\n')
+        for i, (cp, _) in enumerate(descenders):
+            if i % 16 == 0:
+                f.write('    ')
+            f.write(f'0x{cp:04X}, ')
+            if (i + 1) % 16 == 0:
+                f.write('\n')
+        if len(descenders) % 16 != 0:
+            f.write('\n')
+        f.write('};\n\n')
+
+        f.write('static const uint8_t CJK_UI_DESCENDER_GLYPHS[] PROGMEM = {\n')
+        for cp, data in descenders:
+            f.write(f'    // U+{cp:04X} ({chr(cp)})\n    ')
+            for b in data:
+                f.write(f'0x{b:02X}, ')
+            f.write('\n')
+        f.write('};\n\n')
+
         # Write lookup functions
         f.write('''// Binary search for codepoint
 inline int findGlyphIndex(uint16_t codepoint) {
@@ -381,6 +429,23 @@ inline uint8_t getCjkUiGlyphWidth(uint32_t codepoint) {
     return pgm_read_byte(&CJK_UI_GLYPH_WIDTHS[idx]);
 }
 
+// セルの下にはみ出す行。無ければ nullptr。
+// 返り値は CJK_UI_DESCENDER_ROWS * CJK_UI_FONT_BYTES_PER_ROW バイト。
+inline const uint8_t* getCjkUiDescender(uint32_t codepoint) {
+    if (CJK_UI_DESCENDER_COUNT == 0 || codepoint > 0xFFFF) return nullptr;
+    const uint16_t cp = static_cast<uint16_t>(codepoint);
+    int low = 0;
+    int high = CJK_UI_DESCENDER_COUNT - 1;
+    while (low <= high) {
+        int mid = (low + high) / 2;
+        uint16_t midCp = pgm_read_word(&CJK_UI_DESCENDER_CODEPOINTS[mid]);
+        if (midCp == cp) return &CJK_UI_DESCENDER_GLYPHS[mid * CJK_UI_DESCENDER_ROWS * CJK_UI_FONT_BYTES_PER_ROW];
+        if (midCp < cp) low = mid + 1;
+        else high = mid - 1;
+    }
+    return nullptr;
+}
+
 } // namespace CjkUiFont''' + str(pixel_size) + '\n')
 
     print(f"Generated: {output_path}")
@@ -397,6 +462,10 @@ def main():
                         help='Path to translations directory (default: auto-detect from project root)')
     parser.add_argument('--codepoints-file', type=str, action='append', dest='codepoints_files',
                         help='Additional codepoints file (hex, one per line). May be repeated.')
+    parser.add_argument('--descender-rows', type=int, default=0,
+                        help='Extra rows kept below the cell for glyphs whose descender does not fit '
+                             '(g, p, y, Q ...). Stored as a sparse table, so the cost is per-glyph, '
+                             'not per-font. 0 disables (previous behaviour).')
     parser.add_argument('--force-pt', type=int,
                         help='Pin the point size instead of shrinking until ascent fits the cell. '
                              'Use to reproduce the metrics of an already shipped header.')
@@ -428,7 +497,7 @@ def main():
             print(f"Auto-detected translations: {translations_dir}")
 
     if generate_font_header(args.font, args.size, output_path, translations_dir, args.codepoints_files,
-                            args.force_pt, args.force_descent, args.inherit_header):
+                            args.force_pt, args.force_descent, args.inherit_header, args.descender_rows):
         print("Success!")
     else:
         print("Failed!")
