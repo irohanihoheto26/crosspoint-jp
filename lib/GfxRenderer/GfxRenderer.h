@@ -24,6 +24,12 @@ class GfxRenderer {
  public:
   enum RenderMode { BW, GRAYSCALE_LSB, GRAYSCALE_MSB };
 
+  // 2bit（4階調）グリフを 1bit のフレームバッファへ落とすときのしきい値。
+  //   Sharp         … カバレッジ 50% 以上の画素だけを黒にする。BW 表示のときはこれ。
+  //   GrayscaleBase … カバレッジ 25% 以上を黒にする。この後 GRAYSCALE_LSB/MSB の
+  //                   2パスで薄い画素を灰色へ持ち上げる前提なので、フチまで塗っておく。
+  enum class GlyphInk : uint8_t { Sharp, GrayscaleBase };
+
   // Logical screen orientation from the perspective of callers
   enum Orientation {
     Portrait,                  // 480x800 logical coordinates (current default)
@@ -63,6 +69,8 @@ class GfxRenderer {
 
   // Dark mode: true = black background, false = white background
   bool darkMode = false;
+  // 2bit グリフ→1bit の変換しきい値（既定は BW 表示向けの Sharp）
+  GlyphInk glyphInk = GlyphInk::Sharp;
   // Whether to invert images in dark mode (user preference)
   bool invertImagesInDarkMode = false;
   // Extra spacing (in pixels) for ASCII letters/digits when using external reader font.
@@ -127,6 +135,17 @@ class GfxRenderer {
   // styleMask は「このテキストで実際に使うスタイル」のビット集合（1 << EpdFontFamily::Style）。
   // 既定の 0x0F は全スタイル。レイアウト経路からは使用スタイルに絞って渡すこと。
   void ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F) const;
+
+  void setGlyphInk(const GlyphInk v) { glyphInk = v; }
+  GlyphInk getGlyphInk() const { return glyphInk; }
+
+  // bmpVal は 0=黒 1=濃灰 2=薄灰 3=白（それぞれカバレッジ 75/50/25/0% 以上）。
+  // 1画素ごとに呼ばれるのでヘッダ内インラインにしている。
+  bool isGlyphInk(const uint8_t bmpVal) const {
+    if (glyphInk == GlyphInk::Sharp) return bmpVal <= 1;
+    // ダークモードでは地色が黒なのでフチまで塗ると滲む。濃い画素だけを地として敷く。
+    return darkMode ? (bmpVal == 0) : (bmpVal <= 2);
+  }
 
   // Orientation control (affects logical width/height and coordinate
   // transforms)

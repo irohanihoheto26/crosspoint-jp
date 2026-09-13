@@ -395,7 +395,14 @@ void TxtReaderActivity::renderPage() {
   scope.endScanAndPrewarm();
 
   // BW rendering
+  // アンチエイリアスするときだけ、BW パスでグリフのフチまで黒く敷いておく
+  // （後段のグレー2パスがその画素を灰色へ持ち上げる）。しないときは 50% しきい値の
+  // Sharp のままにする。フチまで黒くすると字画がつぶれて解像感が落ちるため。
+  renderer.setGlyphInk(SETTINGS.horizontal.textAntiAliasing ? GfxRenderer::GlyphInk::GrayscaleBase
+                                                            : GfxRenderer::GlyphInk::Sharp);
   renderLines();
+  // ステータスバーはグレーパスで描き直さないので常に Sharp で描く
+  renderer.setGlyphInk(GfxRenderer::GlyphInk::Sharp);
   renderStatusBar();
 
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
