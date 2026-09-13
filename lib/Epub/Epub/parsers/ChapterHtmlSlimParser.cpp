@@ -243,29 +243,29 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
 // <pre> で保留していた改行を行区切りとして確定させる。
 // 2 つ以上続いていた場合は、間の行を空行として出す（コードの空行を潰さないため）。
 // 新しい行は枠の左右だけを持ち、上辺・下辺は <pre> の開始と終了で付ける。
+// <pre> の 2 行目以降に使うブロックスタイル。
+// 枠と中身の間のアキは最初の行と最後の行だけが持つ。CSS の `pre { padding: 0.8em }` の
+// ような指定はブロック全体に 1 回かかるべきもので、行ごとに付けると 1 行おきに空白が
+// 入り、左右の縦線も途切れる（縦線は 1 行の送りぶんしか引かないため）。
+BlockStyle ChapterHtmlSlimParser::preContinuationStyle() const {
+  auto lineStyle = currentTextBlock->getBlockStyle();
+  lineStyle.frameEdges = static_cast<uint8_t>(lineStyle.frameEdges & ~BlockStyle::FRAME_TOP);
+  lineStyle.marginTop = 0;
+  lineStyle.paddingTop = 0;
+  lineStyle.marginBottom = 0;
+  lineStyle.paddingBottom = 0;
+  return lineStyle;
+}
+
 void ChapterHtmlSlimParser::preFlushPendingNewlines() {
   while (prePendingNewlines > 0) {
-    auto lineStyle = currentTextBlock->getBlockStyle();
-    lineStyle.frameEdges = static_cast<uint8_t>(lineStyle.frameEdges & ~BlockStyle::FRAME_TOP);
-    // 枠と中身の間のアキは <pre> の最初の行と最後の行だけが持つ。CSS の
-    // `pre { padding: 0.8em }` のような指定はブロック全体に 1 回かかるべきもので、
-    // 行ごとに付けると 1 行おきに空白が入り、左右の縦線も途切れる
-    // （縦線は 1 行の送りぶんしか引かないため）。
-    lineStyle.marginTop = 0;
-    lineStyle.paddingTop = 0;
-    lineStyle.marginBottom = 0;
-    lineStyle.paddingBottom = 0;
-    // 空のブロックを使い回すとき startNewTextBlock が親子のアキを足し込むので、
-    // 今のブロックからも落としておく（コードの空行がここを通る）。
-    if (currentTextBlock->isEmpty()) {
-      auto emptyStyle = currentTextBlock->getBlockStyle();
-      emptyStyle.marginTop = 0;
-      emptyStyle.paddingTop = 0;
-      emptyStyle.marginBottom = 0;
-      emptyStyle.paddingBottom = 0;
-      currentTextBlock->setBlockStyle(emptyStyle);
+    // コードが空行で始まる場合、まだ語の無いこのブロックがそのまま 1 行目になる。
+    // ここで新しいブロックに移ると枠の上辺と上のアキを落としてしまうので、
+    // 高さだけ確保して次の行へ進む。
+    if (currentTextBlock->isEmpty() && (currentTextBlock->getBlockStyle().frameEdges & BlockStyle::FRAME_TOP) != 0) {
+      currentTextBlock->addWord(" ", EpdFontFamily::REGULAR);
     }
-    startNewTextBlock(lineStyle);
+    startNewTextBlock(preContinuationStyle());
     prePendingNewlines--;
     if (prePendingNewlines > 0) {
       // 空行。語が 1 つも無いブロックはページに積まれないので空白を 1 つ置く。
@@ -788,7 +788,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     preStyle.paddingLeft = static_cast<int16_t>(preStyle.paddingLeft + framePadding);
     preStyle.paddingRight = static_cast<int16_t>(preStyle.paddingRight + framePadding);
     self->prePendingNewlines = 0;
-    if (self->preUntilDepth == INT_MAX) {
+    const bool outermostPre = (self->preUntilDepth == INT_MAX);
+    if (outermostPre) {
       self->preSavedHyphenation = self->hyphenationEnabled;
       self->hyphenationEnabled = false;
     }
@@ -797,8 +798,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->startNewTextBlock(preStyle);
     // 下のアキは最後の行に付け替える。ここで実際のブロックから読み直すのは、
     // startNewTextBlock が空ブロックを使い回すときに親（<div class="sourceCode"> など）の
-    // アキを足し込むため。
-    if (self->currentTextBlock) {
+    // アキを足し込むため。入れ子の <pre>（不正な HTML）では外側の値を上書きしないよう、
+    // いちばん外側の <pre> でだけ退避する。
+    if (self->currentTextBlock && outermostPre) {
       auto firstLineStyle = self->currentTextBlock->getBlockStyle();
       self->preSavedMarginBottom = firstLineStyle.marginBottom;
       self->preSavedPaddingBottom = firstLineStyle.paddingBottom;
@@ -912,7 +914,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         // flush word preceding <br/> to currentTextBlock before calling startNewTextBlock
         self->flushPartWordBuffer();
       }
-      self->startNewTextBlock(self->currentTextBlock->getBlockStyle());
+      // <pre> の中の <br/> も 1 行の区切り。スタイルをそのまま複製すると枠の上辺と
+      // 上下のアキが行ごとに付いてしまうので、改行と同じ扱いにする。
+      self->startNewTextBlock(self->preUntilDepth < self->depth ? self->preContinuationStyle()
+                                                                : self->currentTextBlock->getBlockStyle());
     } else {
       self->currentCssStyle = cssStyle;
 
@@ -1564,9 +1569,13 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
       self->flushPartWordBuffer();
     }
     // 手元に残っている行が <pre> の最終行。ここで枠の下辺を付けてから流す。
-    if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+    // 中身が空の <pre> でも、開始時に外した下のアキは戻す（戻さないと次の段落との
+    // 間隔が CSS の指定より詰まる）。枠の下辺は行が無ければ引かない。
+    if (self->currentTextBlock) {
       auto lastStyle = self->currentTextBlock->getBlockStyle();
-      lastStyle.frameEdges = static_cast<uint8_t>(lastStyle.frameEdges | BlockStyle::FRAME_BOTTOM);
+      if (!self->currentTextBlock->isEmpty()) {
+        lastStyle.frameEdges = static_cast<uint8_t>(lastStyle.frameEdges | BlockStyle::FRAME_BOTTOM);
+      }
       // <pre> の開始時に外しておいた下のアキをここで戻す
       lastStyle.paddingBottom = static_cast<int16_t>(lastStyle.paddingBottom + self->preSavedPaddingBottom);
       lastStyle.marginBottom = static_cast<int16_t>(lastStyle.marginBottom + self->preSavedMarginBottom +

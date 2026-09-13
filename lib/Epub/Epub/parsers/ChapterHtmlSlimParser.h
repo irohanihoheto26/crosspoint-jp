@@ -46,6 +46,7 @@ class ChapterHtmlSlimParser {
   // 来た時点で行を切ることで、</pre> に来たときに「最後の行」が手元に残る（枠の下辺を
   // 付けるために必要）。末尾の改行はこの仕組みで自然に捨てられる。
   int prePendingNewlines = 0;
+  BlockStyle preContinuationStyle() const;
   void preFlushPendingNewlines();
   // buffer for building up words from characters, will auto break if longer than this
   // leave one char at end for null pointer
