@@ -114,6 +114,12 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
   constexpr auto calendarOn = [] {
     return gpio.deviceIsX3() && SETTINGS.rtcEnabled != 0 && SETTINGS.sleepCalendar != 0;
   };
+  // 年の進みは日付が必要。スリープは電源断なので、DS3231 を使う（X3 で RTC 有効）以外では
+  // 起きた時点で時刻が失われ、既定のスリープ画面に退避する。その事情を設定画面で示す
+  constexpr auto yearProgressNeedsRtc = [] {
+    return gpio.deviceIsX3() && SETTINGS.sleepScreen == S::YEAR_PROGRESS && SETTINGS.rtcEnabled == 0;
+  };
+  constexpr auto yearProgressNoRtcDevice = [] { return gpio.deviceIsX4() && SETTINGS.sleepScreen == S::YEAR_PROGRESS; };
 
   std::vector<SettingInfo> v = {
       // --- Display ---
@@ -136,6 +142,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                         {StrId::STR_YP_WATER_LEVEL, StrId::STR_YP_DOT_GRID, StrId::STR_YP_SQUARE_GRID},
                         "yearProgressStyle", StrId::STR_CAT_DISPLAY)
           .dependsOn(sleepIsYearProgress),
+      //   └ 年の進みの前提の案内。X3 で RTC 無効なら押すと本体タブの「RTC 有効」へ移動
+      SettingInfo::Info(StrId::STR_YP_NEEDS_RTC, SettingAction::JumpToRtcSetting, StrId::STR_CAT_DISPLAY)
+          .dependsOn(yearProgressNeedsRtc),
+      SettingInfo::Info(StrId::STR_YP_NO_RTC_DEVICE, SettingAction::None, StrId::STR_CAT_DISPLAY)
+          .dependsOn(yearProgressNoRtcDevice),
       //   └ カレンダーを重ねる（X3 かつ RTC 有効のとき）
       SettingInfo::Toggle(StrId::STR_SLEEP_CALENDAR, &CrossPointSettings::sleepCalendar, "sleepCalendar",
                           StrId::STR_CAT_DISPLAY)

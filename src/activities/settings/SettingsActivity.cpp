@@ -38,18 +38,20 @@ void SettingsActivity::rebuildSettingsLists() {
   controlsSettings.clear();
   systemSettings.clear();
 
-  for (auto& setting : getSettingsList(&sdFontSystem.registry())) {
+  // 値を変えるたびに呼ばれるので、SettingInfo（vector と std::function を持つ）はコピーせず move する
+  auto allSettings = getSettingsList(&sdFontSystem.registry());
+  for (auto& setting : allSettings) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
     // 親設定が使っていない機能の子設定は表示しない（依存関係は SettingsList.h の dependsOn を参照）
     if (setting.visibleWhen && !setting.visibleWhen()) continue;
     if (setting.category == StrId::STR_CAT_DISPLAY) {
-      displaySettings.push_back(setting);
+      displaySettings.push_back(std::move(setting));
     } else if (setting.category == StrId::STR_CAT_READER) {
-      readerSettings.push_back(setting);
+      readerSettings.push_back(std::move(setting));
     } else if (setting.category == StrId::STR_CAT_CONTROLS) {
-      controlsSettings.push_back(setting);
+      controlsSettings.push_back(std::move(setting));
     } else if (setting.category == StrId::STR_CAT_SYSTEM) {
-      systemSettings.push_back(setting);
+      systemSettings.push_back(std::move(setting));
     }
   }
 
@@ -353,6 +355,19 @@ void SettingsActivity::toggleCurrentSetting() {
                                  requestUpdate();
                                });
         break;
+      case SettingAction::JumpToRtcSetting: {
+        // 本体タブへ移り、「RTC 有効」にカーソルを置く
+        selectedCategoryIndex = 3;
+        rebuildSettingsLists();
+        selectedSettingIndex = 1;
+        for (size_t i = 0; i < currentSettings->size(); i++) {
+          if ((*currentSettings)[i].nameId == StrId::STR_RTC_ENABLED) {
+            selectedSettingIndex = static_cast<int>(i) + 1;
+            break;
+          }
+        }
+        break;
+      }
       case SettingAction::None:
         // Do nothing
         break;

@@ -27,6 +27,7 @@ enum class SettingAction {
   AozoraBunko,
   HorizontalSettings,
   VerticalSettings,
+  JumpToRtcSetting,  // 本体タブの「RTC 有効」へ移動する（依存関係の案内行から）
 };
 
 struct SettingInfo {
@@ -102,6 +103,17 @@ struct SettingInfo {
     s.nameId = nameId;
     s.type = SettingType::ACTION;
     s.action = action;
+    return s;
+  }
+
+  // 値を持たない案内行。端末の一覧にだけ出す（key が無いので JSON API には含まれない）。
+  // action を指定すると Confirm で移動などができる。
+  static SettingInfo Info(StrId nameId, SettingAction action, StrId category) {
+    SettingInfo s;
+    s.nameId = nameId;
+    s.type = SettingType::ACTION;
+    s.action = action;
+    s.category = category;
     return s;
   }
 

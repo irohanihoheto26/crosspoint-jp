@@ -59,7 +59,7 @@ YearProgressSleepScreen::YearInfo YearProgressSleepScreen::computeYearInfo(const
   return info;
 }
 
-void YearProgressSleepScreen::render(GfxRenderer& renderer, const uint8_t style, const struct tm& date) {
+void YearProgressSleepScreen::render(const GfxRenderer& renderer, const uint8_t style, const struct tm& date) {
   const YearInfo info = computeYearInfo(date);
   switch (style) {
     case CrossPointSettings::YP_WATER_LEVEL:
@@ -75,7 +75,7 @@ void YearProgressSleepScreen::render(GfxRenderer& renderer, const uint8_t style,
   }
 }
 
-void YearProgressSleepScreen::fillCircle(GfxRenderer& renderer, const int cx, const int cy, const int r,
+void YearProgressSleepScreen::fillCircle(const GfxRenderer& renderer, const int cx, const int cy, const int r,
                                          const Color color) {
   for (int dy = -r; dy <= r; dy++) {
     const int hw = isqrt(r * r - dy * dy);
@@ -84,7 +84,7 @@ void YearProgressSleepScreen::fillCircle(GfxRenderer& renderer, const int cx, co
 }
 
 // ラベルを 1 文字ずつ字間を空けて描く（小さな大文字の見出し用）。幅を返す。
-int YearProgressSleepScreen::drawTracked(GfxRenderer& renderer, const int fontId, const int x, const int top,
+int YearProgressSleepScreen::drawTracked(const GfxRenderer& renderer, const int fontId, const int x, const int top,
                                          const char* text, const int tracking, const bool draw, const bool black) {
   int cx = x;
   char ch[2] = {0, 0};
@@ -105,8 +105,8 @@ int YearProgressSleepScreen::drawTracked(GfxRenderer& renderer, const int fontId
 // 右は「70.6%」を同じベースラインに右揃え。その下に細い罫線。
 // ラベルはデザインの一部として英字の小見出しに固定している（数字フォントも欧文のみ）。
 // yTop は大きな数字の上端。left/right は見出しの左右端。
-void YearProgressSleepScreen::drawHeader(GfxRenderer& renderer, const YearInfo& info, const int left, const int right,
-                                         const int yTop, const bool black) {
+void YearProgressSleepScreen::drawHeader(const GfxRenderer& renderer, const YearInfo& info, const int left,
+                                         const int right, const int yTop, const bool black) {
   const int W = renderer.getScreenWidth();
   const auto sx = [W](int v) { return v * W / BASE_W; };
 
@@ -153,7 +153,7 @@ void YearProgressSleepScreen::drawHeader(GfxRenderer& renderer, const YearInfo& 
 
 // 01 年の水位: 画面下から黒が満ちてくる。黒の高さ＝経過割合。
 // 右端の目盛りは月の境、水面直下の濃いディザ帯は今月の経過分。
-void YearProgressSleepScreen::renderWaterLevel(GfxRenderer& renderer, const YearInfo& info) {
+void YearProgressSleepScreen::renderWaterLevel(const GfxRenderer& renderer, const YearInfo& info) {
   const int W = renderer.getScreenWidth();
   const int H = renderer.getScreenHeight();
   const auto sx = [W](int v) { return v * W / BASE_W; };
@@ -171,16 +171,19 @@ void YearProgressSleepScreen::renderWaterLevel(GfxRenderer& renderer, const Year
   const int freq10 = 15 + static_cast<int>((hash >> 8) % 26);  // 1.5〜4.0 周期（×10）
   const int phase = static_cast<int>((hash >> 16) % 64);
 
+  // 波の縁（水面 ± 振幅）だけ列ごとに描き、その下は横一杯の矩形でまとめて塗る
+  const int fringeBottom = std::min(H, water + amp + 1);
   for (int x = 0; x < W; x++) {
     const int idx = (x * freq10 * 64 / (10 * W) + phase) & 63;
-    int yl = water + amp * SIN64[idx] / 1024;
-    yl = std::clamp(yl, 0, H);
-    if (monthTop > yl) {
-      renderer.fillRectDither(x, yl, 1, monthTop - yl, Color::DarkGray);
-      if (monthTop < H) renderer.fillRect(x, monthTop, 1, H - monthTop, true);
-    } else if (yl < H) {
-      renderer.fillRect(x, yl, 1, H - yl, true);
-    }
+    const int yl = std::clamp(water + amp * SIN64[idx] / 1024, 0, fringeBottom);
+    const int ditherEnd = std::clamp(monthTop, yl, fringeBottom);
+    if (ditherEnd > yl) renderer.fillRectDither(x, yl, 1, ditherEnd - yl, Color::DarkGray);
+    if (fringeBottom > ditherEnd) renderer.fillRect(x, ditherEnd, 1, fringeBottom - ditherEnd, true);
+  }
+  if (fringeBottom < H) {
+    const int bandEnd = std::clamp(monthTop, fringeBottom, H);
+    if (bandEnd > fringeBottom) renderer.fillRectDither(0, fringeBottom, W, bandEnd - fringeBottom, Color::DarkGray);
+    if (bandEnd < H) renderer.fillRect(0, bandEnd, W, H - bandEnd, true);
   }
 
   // 右端の目盛り（月の境）。水中では白、水上では黒。
@@ -207,7 +210,7 @@ void YearProgressSleepScreen::renderWaterLevel(GfxRenderer& renderer, const Year
 }
 
 // 03 年格子: 15 列の丸を左上から折り返して 1 日 1 点。黒＝過ぎた日、淡い＝これから、輪付き＝今日。
-void YearProgressSleepScreen::renderDotGrid(GfxRenderer& renderer, const YearInfo& info) {
+void YearProgressSleepScreen::renderDotGrid(const GfxRenderer& renderer, const YearInfo& info) {
   const int W = renderer.getScreenWidth();
   const int H = renderer.getScreenHeight();
   const auto sx = [W](int v) { return v * W / BASE_W; };
@@ -241,7 +244,7 @@ void YearProgressSleepScreen::renderDotGrid(GfxRenderer& renderer, const YearInf
 }
 
 // 05 年の升目: 年格子と同じ並びを升目で。黒＝過ぎた日、枠のみ＝これから、斜線＝今日。
-void YearProgressSleepScreen::renderSquareGrid(GfxRenderer& renderer, const YearInfo& info) {
+void YearProgressSleepScreen::renderSquareGrid(const GfxRenderer& renderer, const YearInfo& info) {
   const int W = renderer.getScreenWidth();
   const int H = renderer.getScreenHeight();
   const auto sx = [W](int v) { return v * W / BASE_W; };

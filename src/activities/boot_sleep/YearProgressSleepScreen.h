@@ -16,7 +16,7 @@ class YearProgressSleepScreen {
   // style は CrossPointSettings::YEAR_PROGRESS_STYLE の値。
   // 呼び出し側で clearScreen 済みである必要はない（内部で白に塗る）。
   // displayBuffer は呼ばない（呼び出し側でカレンダー等を重ねてから表示する）。
-  static void render(GfxRenderer& renderer, uint8_t style, const struct tm& date);
+  static void render(const GfxRenderer& renderer, uint8_t style, const struct tm& date);
 
  private:
   struct YearInfo {
@@ -29,13 +29,13 @@ class YearProgressSleepScreen {
   };
   static YearInfo computeYearInfo(const struct tm& date);
 
-  static void renderWaterLevel(GfxRenderer& renderer, const YearInfo& info);
-  static void renderDotGrid(GfxRenderer& renderer, const YearInfo& info);
-  static void renderSquareGrid(GfxRenderer& renderer, const YearInfo& info);
+  static void renderWaterLevel(const GfxRenderer& renderer, const YearInfo& info);
+  static void renderDotGrid(const GfxRenderer& renderer, const YearInfo& info);
+  static void renderSquareGrid(const GfxRenderer& renderer, const YearInfo& info);
 
   // 見出し（残り日数・経過率・罫線）。yTop は大きな数字の上端。
-  static void drawHeader(GfxRenderer& renderer, const YearInfo& info, int left, int right, int yTop, bool black);
-  static int drawTracked(GfxRenderer& renderer, int fontId, int x, int top, const char* text, int tracking, bool draw,
-                         bool black);
-  static void fillCircle(GfxRenderer& renderer, int cx, int cy, int r, Color color);
+  static void drawHeader(const GfxRenderer& renderer, const YearInfo& info, int left, int right, int yTop, bool black);
+  static int drawTracked(const GfxRenderer& renderer, int fontId, int x, int top, const char* text, int tracking,
+                         bool draw, bool black);
+  static void fillCircle(const GfxRenderer& renderer, int cx, int cy, int r, Color color);
 };
