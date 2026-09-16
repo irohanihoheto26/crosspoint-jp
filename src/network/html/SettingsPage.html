@@ -416,8 +416,9 @@
       for (const category in groups) {
         html += '<div class="card"><h2>' + escapeHtml(category) + '</h2>';
         groups[category].forEach(function(s) {
+          const indent = s.depth ? ' style="padding-left:' + (s.depth * 20) + 'px"' : '';
           html += '<div class="setting-row">' +
-            '<span class="setting-name">' + escapeHtml(s.name) + '</span>' +
+            '<span class="setting-name"' + indent + '>' + escapeHtml(s.name) + '</span>' +
             '<span class="setting-control">' + renderControl(s) + '</span>' +
             '</div>';
         });

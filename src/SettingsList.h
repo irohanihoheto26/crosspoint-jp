@@ -1,5 +1,6 @@
 #pragma once
 
+#include <HalGPIO.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <SdCardFontRegistry.h>
@@ -96,27 +97,54 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
 // ACTION-type entries and entries without a key are device-only.
 // Pass registry to include SD card fonts in the font family setting.
 inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry = nullptr) {
+  // 子設定の表示条件（親の値に依存する項目は、親がその機能を使うときだけ端末に表示する）
+  using S = CrossPointSettings;
+  constexpr auto sleepUsesBitmap = [] {
+    // カスタム画像・カバーは BMP を描くので、収め方やフィルターが意味を持つ
+    return SETTINGS.sleepScreen == S::CUSTOM || SETTINGS.sleepScreen == S::COVER ||
+           SETTINGS.sleepScreen == S::COVER_CUSTOM;
+  };
+  constexpr auto sleepUsesCover = [] {
+    return SETTINGS.sleepScreen == S::COVER || SETTINGS.sleepScreen == S::COVER_CUSTOM;
+  };
+  constexpr auto sleepIsYearProgress = [] { return SETTINGS.sleepScreen == S::YEAR_PROGRESS; };
+  // DS3231 を持つ X3 だけが RTC を使える。カレンダーの重ね描きは RTC で日付が保てるときだけ意味がある
+  constexpr auto hasRtc = [] { return gpio.deviceIsX3(); };
+  constexpr auto calendarAvailable = [] { return gpio.deviceIsX3() && SETTINGS.rtcEnabled != 0; };
+  constexpr auto calendarOn = [] {
+    return gpio.deviceIsX3() && SETTINGS.rtcEnabled != 0 && SETTINGS.sleepCalendar != 0;
+  };
+
   std::vector<SettingInfo> v = {
       // --- Display ---
+      // スリープ画面（親）
       SettingInfo::Enum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
                         {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
                          StrId::STR_COVER_CUSTOM, StrId::STR_YEAR_PROGRESS},
                         "sleepScreen", StrId::STR_CAT_DISPLAY),
+      //   └ カバー: 収め方
       SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
-                        {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY),
+                        {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY)
+          .dependsOn(sleepUsesCover),
+      //   └ カスタム・カバー: 画像フィルター
       SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
                         {StrId::STR_FILTER_GRAYSCALE, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
-                        "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY),
+                        "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY)
+          .dependsOn(sleepUsesBitmap),
+      //   └ 年の進み: 表示スタイル
       SettingInfo::Enum(StrId::STR_YEAR_PROGRESS_STYLE, &CrossPointSettings::yearProgressStyle,
                         {StrId::STR_YP_WATER_LEVEL, StrId::STR_YP_DOT_GRID, StrId::STR_YP_SQUARE_GRID},
-                        "yearProgressStyle", StrId::STR_CAT_DISPLAY),
-      // --- RTC (X3 only) ---
-      SettingInfo::Toggle(StrId::STR_RTC_ENABLED, &CrossPointSettings::rtcEnabled, "rtcEnabled", StrId::STR_CAT_RTC),
+                        "yearProgressStyle", StrId::STR_CAT_DISPLAY)
+          .dependsOn(sleepIsYearProgress),
+      //   └ カレンダーを重ねる（X3 かつ RTC 有効のとき）
       SettingInfo::Toggle(StrId::STR_SLEEP_CALENDAR, &CrossPointSettings::sleepCalendar, "sleepCalendar",
-                          StrId::STR_CAT_RTC),
+                          StrId::STR_CAT_DISPLAY)
+          .dependsOn(calendarAvailable),
+      //       └ カレンダー配置
       SettingInfo::Enum(StrId::STR_SLEEP_CALENDAR_POSITION, &CrossPointSettings::sleepCalendarPosition,
                         {StrId::STR_CALENDAR_POS_TOP, StrId::STR_CALENDAR_POS_CENTER, StrId::STR_CALENDAR_POS_BOTTOM},
-                        "sleepCalendarPosition", StrId::STR_CAT_RTC),
+                        "sleepCalendarPosition", StrId::STR_CAT_DISPLAY)
+          .dependsOn(calendarOn, 2),
       SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
                         {StrId::STR_NEVER, StrId::STR_IN_READER, StrId::STR_ALWAYS}, "hideBatteryPercentage",
                         StrId::STR_CAT_DISPLAY),
@@ -163,6 +191,9 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
       SettingInfo::Enum(StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeout,
                         {StrId::STR_MIN_1, StrId::STR_MIN_5, StrId::STR_MIN_10, StrId::STR_MIN_15, StrId::STR_MIN_30},
                         "sleepTimeout", StrId::STR_CAT_SYSTEM),
+      // RTC（DS3231）を使うか。X3 のみ。スリープ中も時刻を保つが電池を消費する
+      SettingInfo::Toggle(StrId::STR_RTC_ENABLED, &CrossPointSettings::rtcEnabled, "rtcEnabled", StrId::STR_CAT_SYSTEM)
+          .dependsOn(hasRtc, 0),
       SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
                           StrId::STR_CAT_SYSTEM),
       SettingInfo::Toggle(StrId::STR_DEBUG_DISPLAY, &CrossPointSettings::debugDisplay, "debugDisplay",
