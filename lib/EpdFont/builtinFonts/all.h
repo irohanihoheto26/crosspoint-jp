@@ -53,3 +53,6 @@
 #include <builtinFonts/ubuntu_10_regular.h>
 #include <builtinFonts/ubuntu_12_bold.h>
 #include <builtinFonts/ubuntu_12_regular.h>
+#include <builtinFonts/yearprogress_8_bold.h>
+#include <builtinFonts/yearprogress_13_bold.h>
+#include <builtinFonts/yearprogress_26_bold.h>
