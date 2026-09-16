@@ -456,7 +456,9 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   FontManager& fm = FontManager::getInstance();
 
   // Check if using external font for reader fonts
-  if (isReaderFont(fontId)) {
+  if (isExactGlyphFont(fontId)) {
+    // 置き換えなし。下の getTextDimensions へ。
+  } else if (isReaderFont(fontId)) {
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
       if (extFont) {
@@ -572,6 +574,16 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   const uint16_t scale = getSdCardFontScale(effectiveFontId);
   if (scale != 256) w = (w * scale + 128) >> 8;
   return w;
+}
+
+int GfxRenderer::getTextLeftBearing(const int fontId, const char* text, const EpdFontFamily::Style style) const {
+  const int effectiveFontId = getEffectiveFontId(fontId);
+  const auto it = fontMap.find(effectiveFontId);
+  if (it == fontMap.end() || text == nullptr || *text == '\0') return 0;
+  int minX = it->second.getTextLeftBearing(text, style);
+  const uint16_t scale = getSdCardFontScale(effectiveFontId);
+  if (scale != 256) minX = (minX * scale + 128) >> 8;
+  return minX;
 }
 
 void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* text, const bool black,
@@ -2524,7 +2536,9 @@ void GfxRenderer::renderChar(const int fontId, const EpdFontFamily& fontFamily, 
   const bool isCjk = isCjkCodepoint(cp);
 
   // Prefer external reader font when enabled; fall back to built-in only if missing
-  if (isReaderFont(fontId)) {
+  if (isExactGlyphFont(fontId)) {
+    // 置き換えなし。下の自前グリフ描画へ。
+  } else if (isReaderFont(fontId)) {
     if (fm.isExternalFontEnabled()) {
       ExternalFont* extFont = fm.getActiveFont();
       if (extFont) {
@@ -2757,9 +2771,29 @@ void GfxRenderer::getOrientedViewableTRBL(int* outTop, int* outRight, int* outBo
   }
 }
 
+void GfxRenderer::setExactGlyphFont(const int fontId) {
+  if (isExactGlyphFont(fontId)) return;
+  if (exactGlyphFontCount_ >= MAX_EXACT_GLYPH_FONTS) {
+    LOG_ERR("GFX", "Too many exact-glyph fonts, ignoring %d", fontId);
+    return;
+  }
+  exactGlyphFontIds_[exactGlyphFontCount_++] = fontId;
+}
+
+bool GfxRenderer::isExactGlyphFont(const int fontId) const {
+  for (uint8_t i = 0; i < exactGlyphFontCount_; i++) {
+    if (exactGlyphFontIds_[i] == fontId) return true;
+  }
+  return false;
+}
+
 // Check if fontId is a reader font (should use external Chinese font or SD card font rendering path).
 // UI fonts (UI_10, UI_12, SMALL_FONT) should NOT use external font.
 bool GfxRenderer::isReaderFont(const int fontId) const {
+  // 自前の字形で描くフォントは、ID の符号に関係なくリーダーフォントではない
+  if (isExactGlyphFont(fontId)) {
+    return false;
+  }
   // SD card fonts are always reader fonts — their IDs are computed via FNV-1a
   // hash and can be positive or negative. Without this check, positive SD card
   // font IDs fall through to the "UI font" branch in renderChar(), causing CJK

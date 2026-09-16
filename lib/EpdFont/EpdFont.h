@@ -9,6 +9,8 @@ class EpdFont {
   explicit EpdFont(const EpdFontData* data) : data(data) {}
   ~EpdFont() = default;
   void getTextDimensions(const char* string, int* w, int* h) const;
+  /// 先頭グリフの左サイドベアリング（原点から墨の左端までの px）。
+  int getTextLeftBearing(const char* string) const;
 
   const EpdGlyph* getGlyph(uint32_t cp) const;
 

@@ -71,6 +71,12 @@ void EpdFont::getTextBounds(const char* string, const int startX, const int star
   }
 }
 
+int EpdFont::getTextLeftBearing(const char* string) const {
+  int minX = 0, minY = 0, maxX = 0, maxY = 0;
+  getTextBounds(string, 0, 0, &minX, &minY, &maxX, &maxY);
+  return minX;
+}
+
 void EpdFont::getTextDimensions(const char* string, int* w, int* h) const {
   int minX = 0, minY = 0, maxX = 0, maxY = 0;
 

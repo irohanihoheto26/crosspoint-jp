@@ -80,6 +80,10 @@ class GfxRenderer {
   int8_t cjkSpacing = 0;
   // Built-in reader font to fall back to when external glyphs are missing.
   int readerFallbackFontId = 0;
+  // setExactGlyphFont() で登録されたフォント ID（少数なので固定長配列）
+  static constexpr int MAX_EXACT_GLYPH_FONTS = 4;
+  int exactGlyphFontIds_[MAX_EXACT_GLYPH_FONTS] = {};
+  uint8_t exactGlyphFontCount_ = 0;
   // Skip dark mode inversion for images (cover art should not be inverted)
   mutable bool skipDarkModeForImages = false;
   void renderChar(int fontId, const EpdFontFamily& fontFamily, uint32_t cp, int* x, const int* y, bool pixelState,
@@ -115,6 +119,12 @@ class GfxRenderer {
   // Setup
   void begin();  // must be called right after display.begin()
   void insertFont(int fontId, EpdFontFamily font);
+  // 常に自前の字形だけで描くフォントとして登録する。
+  // 通常、リーダーフォント以外の ASCII は内蔵 CJK UI フォント（20px）に置き換えられ、
+  // 負の ID は外部リーダーフォントとして扱われる。数字専用の大きなフォントなど、
+  // 字形をそのまま出したいフォントはここに登録して両方の置き換えを避ける。
+  void setExactGlyphFont(int fontId);
+  bool isExactGlyphFont(int fontId) const;
   void removeFont(int fontId) { fontMap.erase(fontId); }
   void setFontCacheManager(FontCacheManager* m) { fontCacheManager_ = m; }
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
@@ -215,6 +225,10 @@ class GfxRenderer {
 
   // Text
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  // 先頭グリフの左サイドベアリング（描画原点から墨の左端までの距離、px）。
+  // 罫線や図形に文字の墨の端を揃えたいときに使う。fontMap にあるフォントのみ対応し、
+  // それ以外は 0 を返す。
+  int getTextLeftBearing(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawCenteredText(int fontId, int y, const char* text, bool black = true,
                         EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
