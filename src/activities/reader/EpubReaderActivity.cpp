@@ -24,6 +24,7 @@
 #include "OrientationHelper.h"
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
+#include "ReadingStatusHelper.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontGlobals.h"
 #include "activities/settings/LineSpacingSelectionActivity.h"
@@ -483,10 +484,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           uint16_t backupSpine = currentSpineIndex;
           uint16_t backupPage = section->currentPage;
           uint16_t backupPageCount = section->pageCount;
+          const int backupPercent = calculateBookPercent(section->currentPage, section->pageCount);
           section.reset();
           epub->clearCache();
           epub->setupCacheDir();
-          saveProgress(backupSpine, backupPage, backupPageCount);
+          saveProgress(backupSpine, backupPage, backupPageCount, false, backupPercent);
         }
       }
       onGoHome();
@@ -705,7 +707,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   // Show end of book screen
   if (currentSpineIndex == epub->getSpineItemsCount()) {
-    saveProgress(currentSpineIndex, 0, 0, true);
+    saveProgress(currentSpineIndex, 0, 0, true, 100);
     renderer.clearScreen();
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
@@ -906,13 +908,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
   silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
   {
-    bool nearEnd = false;
-    if (epub->getBookSize() > 0 && section->pageCount > 0) {
-      const float chapterProgress =
-          static_cast<float>(section->currentPage + 1) / static_cast<float>(section->pageCount);
-      nearEnd = epub->calculateProgress(currentSpineIndex, chapterProgress) >= 0.95f;
-    }
-    saveProgress(currentSpineIndex, section->currentPage, section->pageCount, nearEnd);
+    const int percent = calculateBookPercent(section->currentPage, section->pageCount);
+    const bool nearEnd = percent >= 95;
+    saveProgress(currentSpineIndex, section->currentPage, section->pageCount, nearEnd, percent);
   }
 
   if (pendingScreenshot) {
@@ -958,10 +956,20 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
   }
 }
 
-void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished) {
+int EpubReaderActivity::calculateBookPercent(int currentPage, int pageCount) const {
+  if (!epub || epub->getBookSize() == 0 || pageCount <= 0) {
+    return -1;
+  }
+  const float chapterProgress = static_cast<float>(currentPage + 1) / static_cast<float>(pageCount);
+  return clampPercent(static_cast<int>(epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f + 0.5f));
+}
+
+void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished, int percent) {
   FsFile f;
   if (Storage.openFileForWrite("ERS", epub->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[7];
+    // 形式は docs/file-formats.md の progress.bin を参照。末尾の進捗率は後から追加したフィールドで、
+    // 旧ファイル（7 バイト）は ReadingProgress::PERCENT_UNKNOWN 扱いになる
+    uint8_t data[8];
     data[0] = currentSpineIndex & 0xFF;
     data[1] = (currentSpineIndex >> 8) & 0xFF;
     data[2] = currentPage & 0xFF;
@@ -969,9 +977,11 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     data[4] = pageCount & 0xFF;
     data[5] = (pageCount >> 8) & 0xFF;
     data[6] = isFinished ? 1 : 0;
-    f.write(data, 7);
+    data[7] = (percent >= 0 && percent <= 100) ? static_cast<uint8_t>(percent) : ReadingProgress::PERCENT_UNKNOWN;
+    f.write(data, sizeof(data));
     f.close();
-    LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d, Finished: %d", spineIndex, currentPage, isFinished);
+    LOG_DBG("ERS", "Progress saved: Chapter %d, Page %d, Finished: %d, %d%%", spineIndex, currentPage, isFinished,
+            percent);
   } else {
     LOG_ERR("ERS", "Could not save progress!");
   }

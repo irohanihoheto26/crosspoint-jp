@@ -10,12 +10,28 @@ enum class ReadingStatus : uint8_t {
   Finished  // progress.bin が存在し、読了フラグあり
 };
 
-// ファイルパスからSDカード上のキャッシュを確認し、読書状態を返す。
+// 読書状態と本全体の進捗率。progress.bin の末尾 1 バイトに保存された値をそのまま持つ
+// （形式は docs/file-formats.md の progress.bin を参照）。
+struct ReadingProgress {
+  // 進捗率が保存されていない（進捗率フィールド追加前に書かれた progress.bin）ことを示す値
+  static constexpr uint8_t PERCENT_UNKNOWN = 255;
+
+  ReadingStatus status = ReadingStatus::Unread;
+  uint8_t percent = PERCENT_UNKNOWN;  // 0〜100、または PERCENT_UNKNOWN
+
+  bool hasPercent() const { return percent <= 100; }
+};
+
+// ファイルパスからSDカード上のキャッシュを確認し、読書状態と進捗率を返す。
 // filepath: 書籍ファイルの絶対パス（例: "/books/sample.epub"）
 // cacheDir: キャッシュルート（通常 "/.crosspoint"）
 //
 // 数件だけ引く用途（ホーム画面の「最近の本」など）向け。
 // 一覧全体の状態が要る場合は ReadingStatusIndex を使うこと。
+// EPUB / XTC / TXT（Markdown 含む）に対応。TXT には読了フラグが無いので Finished にはならない。
+ReadingProgress getReadingProgress(const std::string& filepath, const std::string& cacheDir);
+
+// getReadingProgress().status の短縮形
 ReadingStatus getReadingStatus(const std::string& filepath, const std::string& cacheDir);
 
 // キャッシュディレクトリを1回だけ順次走査して、書籍ごとの読書状態をまとめて持つインデックス。

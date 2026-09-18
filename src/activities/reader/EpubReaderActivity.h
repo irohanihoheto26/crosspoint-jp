@@ -46,7 +46,11 @@ class EpubReaderActivity final : public Activity {
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
-  void saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished = false);
+  // percent: 本全体の進捗率（0〜100）。不明なら -1（ホーム画面が book.bin を開かずに表示できるよう
+  // progress.bin の末尾に 1 バイトで保存する）
+  void saveProgress(int spineIndex, int currentPage, int pageCount, bool isFinished = false, int percent = -1);
+  // 現在の章内位置から本全体の進捗率（0〜100）を求める。計算できなければ -1
+  int calculateBookPercent(int currentPage, int pageCount) const;
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void invalidateSectionPreservingPosition();
