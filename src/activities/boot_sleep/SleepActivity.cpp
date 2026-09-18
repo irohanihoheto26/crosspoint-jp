@@ -15,7 +15,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "YearProgressSleepScreen.h"
+#include "DynamicWallpaper.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "components/themes/HintOrientationScope.h"
@@ -70,8 +70,8 @@ void SleepActivity::onEnter() {
         renderCustomSleepScreen();
       }
       break;
-    case (CrossPointSettings::SLEEP_SCREEN_MODE::YEAR_PROGRESS):
-      renderYearProgressSleepScreen();
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::DYNAMIC_WALLPAPER):
+      renderDynamicWallpaper();
       break;
     default:
       renderDefaultSleepScreen();
@@ -367,7 +367,7 @@ void SleepActivity::renderBlankSleepScreen() const {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
-void SleepActivity::renderYearProgressSleepScreen() const {
+void SleepActivity::renderDynamicWallpaper() const {
   // 日付が信用できないときは既定のスリープ画面に退避する
   if (!isTimeValid()) {
     LOG_ERR("SLP", "Time not valid, falling back to default sleep screen");
@@ -378,7 +378,7 @@ void SleepActivity::renderYearProgressSleepScreen() const {
   struct tm timeInfo;
   localtime_r(&now, &timeInfo);
 
-  YearProgressSleepScreen::render(renderer, SETTINGS.yearProgressStyle, timeInfo);
+  DynamicWallpaper::render(renderer, SETTINGS.dynamicWallpaperStyle, timeInfo);
   // カレンダーを BW パスに挿入（displayBuffer 前）
   drawCalendarIfPending();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);

@@ -1,4 +1,4 @@
-#include "YearProgressSleepScreen.h"
+#include "DynamicWallpaper.h"
 
 #include <GfxRenderer.h>
 
@@ -45,7 +45,7 @@ constexpr int daysInMonth(int y, int m) {
 
 }  // namespace
 
-YearProgressSleepScreen::YearInfo YearProgressSleepScreen::computeYearInfo(const struct tm& date) {
+DynamicWallpaper::YearInfo DynamicWallpaper::computeYearInfo(const struct tm& date) {
   YearInfo info{};
   info.year = date.tm_year + 1900;
   info.month = date.tm_mon + 1;
@@ -59,24 +59,24 @@ YearProgressSleepScreen::YearInfo YearProgressSleepScreen::computeYearInfo(const
   return info;
 }
 
-void YearProgressSleepScreen::render(const GfxRenderer& renderer, const uint8_t style, const struct tm& date) {
+void DynamicWallpaper::render(const GfxRenderer& renderer, const uint8_t style, const struct tm& date) {
   const YearInfo info = computeYearInfo(date);
   switch (style) {
-    case CrossPointSettings::YP_WATER_LEVEL:
+    case CrossPointSettings::DW_WATER_LEVEL:
       renderWaterLevel(renderer, info);
       break;
-    case CrossPointSettings::YP_SQUARE_GRID:
+    case CrossPointSettings::DW_SQUARE_GRID:
       renderSquareGrid(renderer, info);
       break;
-    case CrossPointSettings::YP_DOT_GRID:
+    case CrossPointSettings::DW_DOT_GRID:
     default:
       renderDotGrid(renderer, info);
       break;
   }
 }
 
-void YearProgressSleepScreen::fillCircle(const GfxRenderer& renderer, const int cx, const int cy, const int r,
-                                         const Color color) {
+void DynamicWallpaper::fillCircle(const GfxRenderer& renderer, const int cx, const int cy, const int r,
+                                  const Color color) {
   for (int dy = -r; dy <= r; dy++) {
     const int hw = isqrt(r * r - dy * dy);
     renderer.fillRectDither(cx - hw, cy + dy, 2 * hw + 1, 1, color);
@@ -84,8 +84,8 @@ void YearProgressSleepScreen::fillCircle(const GfxRenderer& renderer, const int 
 }
 
 // ラベルを 1 文字ずつ字間を空けて描く（小さな大文字の見出し用）。幅を返す。
-int YearProgressSleepScreen::drawTracked(const GfxRenderer& renderer, const int fontId, const int x, const int top,
-                                         const char* text, const int tracking, const bool draw, const bool black) {
+int DynamicWallpaper::drawTracked(const GfxRenderer& renderer, const int fontId, const int x, const int top,
+                                  const char* text, const int tracking, const bool draw, const bool black) {
   int cx = x;
   char ch[2] = {0, 0};
   for (const char* p = text; *p; p++) {
@@ -105,8 +105,8 @@ int YearProgressSleepScreen::drawTracked(const GfxRenderer& renderer, const int 
 // 右は「70.6%」を同じベースラインに右揃え。その下に細い罫線。
 // ラベルはデザインの一部として英字の小見出しに固定している（数字フォントも欧文のみ）。
 // yTop は大きな数字の上端。left/right は見出しの左右端。
-void YearProgressSleepScreen::drawHeader(const GfxRenderer& renderer, const YearInfo& info, const int left,
-                                         const int right, const int yTop, const bool black) {
+void DynamicWallpaper::drawHeader(const GfxRenderer& renderer, const YearInfo& info, const int left, const int right,
+                                  const int yTop, const bool black) {
   const int W = renderer.getScreenWidth();
   const auto sx = [W](int v) { return v * W / BASE_W; };
 
@@ -122,30 +122,30 @@ void YearProgressSleepScreen::drawHeader(const GfxRenderer& renderer, const Year
   // 26pt Noto Sans Bold の数字は約 41px。罫線はベースラインの 12px 下。
   const int baseline = yTop + sx(41);
   const int tracking = std::max(1, sx(1));
-  const int labelTop = baseline - renderer.getFontAscenderSize(YEARPROGRESS_8_FONT_ID);
+  const int labelTop = baseline - renderer.getFontAscenderSize(WALLPAPER_8_FONT_ID);
   const int labelPitch = sx(15);  // ラベル 2 行の行送り
 
   // 左: 大きな数字 ＋ 右脇に「DAYS / LEFT」（下の行を数字のベースラインに揃える）
   // 数字はサイドベアリングぶん左にずらし、墨の左端を罫線の左端に揃える
-  const int daysBearing = renderer.getTextLeftBearing(YEARPROGRESS_26_FONT_ID, daysBuf);
-  const int daysW = renderer.getTextWidth(YEARPROGRESS_26_FONT_ID, daysBuf);
-  renderer.drawText(YEARPROGRESS_26_FONT_ID, left - daysBearing,
-                    baseline - renderer.getFontAscenderSize(YEARPROGRESS_26_FONT_ID), daysBuf, black);
+  const int daysBearing = renderer.getTextLeftBearing(WALLPAPER_26_FONT_ID, daysBuf);
+  const int daysW = renderer.getTextWidth(WALLPAPER_26_FONT_ID, daysBuf);
+  renderer.drawText(WALLPAPER_26_FONT_ID, left - daysBearing,
+                    baseline - renderer.getFontAscenderSize(WALLPAPER_26_FONT_ID), daysBuf, black);
   const int labelX = left + daysW + sx(10);
-  drawTracked(renderer, YEARPROGRESS_8_FONT_ID, labelX, labelTop - labelPitch, "DAYS", tracking, true, black);
-  drawTracked(renderer, YEARPROGRESS_8_FONT_ID, labelX, labelTop, "LEFT", tracking, true, black);
+  drawTracked(renderer, WALLPAPER_8_FONT_ID, labelX, labelTop - labelPitch, "DAYS", tracking, true, black);
+  drawTracked(renderer, WALLPAPER_8_FONT_ID, labelX, labelTop, "LEFT", tracking, true, black);
 
   // 右: 「70.6%」を同じベースラインに、墨の右端を罫線の右端に揃える。
   // 整数部は 13pt、小数点以下と % は 8pt に落として整数部を主役にする。
-  const int fracBearing = renderer.getTextLeftBearing(YEARPROGRESS_8_FONT_ID, pctFracBuf);
-  const int fracW = renderer.getTextWidth(YEARPROGRESS_8_FONT_ID, pctFracBuf);
+  const int fracBearing = renderer.getTextLeftBearing(WALLPAPER_8_FONT_ID, pctFracBuf);
+  const int fracW = renderer.getTextWidth(WALLPAPER_8_FONT_ID, pctFracBuf);
   const int fracX = right - fracBearing - fracW;
-  renderer.drawText(YEARPROGRESS_8_FONT_ID, fracX, baseline - renderer.getFontAscenderSize(YEARPROGRESS_8_FONT_ID),
+  renderer.drawText(WALLPAPER_8_FONT_ID, fracX, baseline - renderer.getFontAscenderSize(WALLPAPER_8_FONT_ID),
                     pctFracBuf, black);
-  const int intBearing = renderer.getTextLeftBearing(YEARPROGRESS_13_FONT_ID, pctIntBuf);
-  const int intW = renderer.getTextWidth(YEARPROGRESS_13_FONT_ID, pctIntBuf);
-  renderer.drawText(YEARPROGRESS_13_FONT_ID, fracX - sx(1) - intBearing - intW,
-                    baseline - renderer.getFontAscenderSize(YEARPROGRESS_13_FONT_ID), pctIntBuf, black);
+  const int intBearing = renderer.getTextLeftBearing(WALLPAPER_13_FONT_ID, pctIntBuf);
+  const int intW = renderer.getTextWidth(WALLPAPER_13_FONT_ID, pctIntBuf);
+  renderer.drawText(WALLPAPER_13_FONT_ID, fracX - sx(1) - intBearing - intW,
+                    baseline - renderer.getFontAscenderSize(WALLPAPER_13_FONT_ID), pctIntBuf, black);
 
   // 罫線
   renderer.fillRect(left, baseline + sx(12), right - left, 1, black);
@@ -153,7 +153,7 @@ void YearProgressSleepScreen::drawHeader(const GfxRenderer& renderer, const Year
 
 // 01 年の水位: 画面下から黒が満ちてくる。黒の高さ＝経過割合。
 // 右端の目盛りは月の境、水面直下の濃いディザ帯は今月の経過分。
-void YearProgressSleepScreen::renderWaterLevel(const GfxRenderer& renderer, const YearInfo& info) {
+void DynamicWallpaper::renderWaterLevel(const GfxRenderer& renderer, const YearInfo& info) {
   const int W = renderer.getScreenWidth();
   const int H = renderer.getScreenHeight();
   const auto sx = [W](int v) { return v * W / BASE_W; };
@@ -210,7 +210,7 @@ void YearProgressSleepScreen::renderWaterLevel(const GfxRenderer& renderer, cons
 }
 
 // 03 年格子: 15 列の丸を左上から折り返して 1 日 1 点。黒＝過ぎた日、淡い＝これから、輪付き＝今日。
-void YearProgressSleepScreen::renderDotGrid(const GfxRenderer& renderer, const YearInfo& info) {
+void DynamicWallpaper::renderDotGrid(const GfxRenderer& renderer, const YearInfo& info) {
   const int W = renderer.getScreenWidth();
   const int H = renderer.getScreenHeight();
   const auto sx = [W](int v) { return v * W / BASE_W; };
@@ -244,7 +244,7 @@ void YearProgressSleepScreen::renderDotGrid(const GfxRenderer& renderer, const Y
 }
 
 // 05 年の升目: 年格子と同じ並びを升目で。黒＝過ぎた日、枠のみ＝これから、斜線＝今日。
-void YearProgressSleepScreen::renderSquareGrid(const GfxRenderer& renderer, const YearInfo& info) {
+void DynamicWallpaper::renderSquareGrid(const GfxRenderer& renderer, const YearInfo& info) {
   const int W = renderer.getScreenWidth();
   const int H = renderer.getScreenHeight();
   const auto sx = [W](int v) { return v * W / BASE_W; };

@@ -107,26 +107,28 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
   constexpr auto sleepUsesCover = [] {
     return SETTINGS.sleepScreen == S::COVER || SETTINGS.sleepScreen == S::COVER_CUSTOM;
   };
-  constexpr auto sleepIsYearProgress = [] { return SETTINGS.sleepScreen == S::YEAR_PROGRESS; };
+  constexpr auto sleepIsDynamicWallpaper = [] { return SETTINGS.sleepScreen == S::DYNAMIC_WALLPAPER; };
   // DS3231 を持つ X3 だけが RTC を使える。カレンダーの重ね描きは RTC で日付が保てるときだけ意味がある
   constexpr auto hasRtc = [] { return gpio.deviceIsX3(); };
   constexpr auto calendarAvailable = [] { return gpio.deviceIsX3() && SETTINGS.rtcEnabled != 0; };
   constexpr auto calendarOn = [] {
     return gpio.deviceIsX3() && SETTINGS.rtcEnabled != 0 && SETTINGS.sleepCalendar != 0;
   };
-  // 年の進みは日付が必要。スリープは電源断なので、DS3231 を使う（X3 で RTC 有効）以外では
+  // 動的壁紙は日付が必要。スリープは電源断なので、DS3231 を使う（X3 で RTC 有効）以外では
   // 起きた時点で時刻が失われ、既定のスリープ画面に退避する。その事情を設定画面で示す
-  constexpr auto yearProgressNeedsRtc = [] {
-    return gpio.deviceIsX3() && SETTINGS.sleepScreen == S::YEAR_PROGRESS && SETTINGS.rtcEnabled == 0;
+  constexpr auto dynamicWallpaperNeedsRtc = [] {
+    return gpio.deviceIsX3() && SETTINGS.sleepScreen == S::DYNAMIC_WALLPAPER && SETTINGS.rtcEnabled == 0;
   };
-  constexpr auto yearProgressNoRtcDevice = [] { return gpio.deviceIsX4() && SETTINGS.sleepScreen == S::YEAR_PROGRESS; };
+  constexpr auto dynamicWallpaperNoRtcDevice = [] {
+    return gpio.deviceIsX4() && SETTINGS.sleepScreen == S::DYNAMIC_WALLPAPER;
+  };
 
   std::vector<SettingInfo> v = {
       // --- Display ---
       // スリープ画面（親）
       SettingInfo::Enum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
                         {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
-                         StrId::STR_COVER_CUSTOM, StrId::STR_YEAR_PROGRESS},
+                         StrId::STR_COVER_CUSTOM, StrId::STR_DYNAMIC_WALLPAPER},
                         "sleepScreen", StrId::STR_CAT_DISPLAY),
       //   └ カバー: 収め方
       SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
@@ -137,16 +139,16 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                         {StrId::STR_FILTER_GRAYSCALE, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
                         "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY)
           .dependsOn(sleepUsesBitmap),
-      //   └ 年の進み: 表示スタイル
-      SettingInfo::Enum(StrId::STR_YEAR_PROGRESS_STYLE, &CrossPointSettings::yearProgressStyle,
-                        {StrId::STR_YP_WATER_LEVEL, StrId::STR_YP_DOT_GRID, StrId::STR_YP_SQUARE_GRID},
-                        "yearProgressStyle", StrId::STR_CAT_DISPLAY)
-          .dependsOn(sleepIsYearProgress),
-      //   └ 年の進みの前提の案内。X3 で RTC 無効なら押すと本体タブの「RTC 有効」へ移動
-      SettingInfo::Info(StrId::STR_YP_NEEDS_RTC, SettingAction::JumpToRtcSetting, StrId::STR_CAT_DISPLAY)
-          .dependsOn(yearProgressNeedsRtc),
-      SettingInfo::Info(StrId::STR_YP_NO_RTC_DEVICE, SettingAction::None, StrId::STR_CAT_DISPLAY)
-          .dependsOn(yearProgressNoRtcDevice),
+      //   └ 動的壁紙: 種類
+      SettingInfo::Enum(StrId::STR_DYNAMIC_WALLPAPER_STYLE, &CrossPointSettings::dynamicWallpaperStyle,
+                        {StrId::STR_DW_WATER_LEVEL, StrId::STR_DW_DOT_GRID, StrId::STR_DW_SQUARE_GRID},
+                        "dynamicWallpaperStyle", StrId::STR_CAT_DISPLAY)
+          .dependsOn(sleepIsDynamicWallpaper),
+      //   └ 動的壁紙の前提の案内。X3 で RTC 無効なら押すと本体タブの「RTC 有効」へ移動
+      SettingInfo::Info(StrId::STR_DW_NEEDS_RTC, SettingAction::JumpToRtcSetting, StrId::STR_CAT_DISPLAY)
+          .dependsOn(dynamicWallpaperNeedsRtc),
+      SettingInfo::Info(StrId::STR_DW_NO_RTC_DEVICE, SettingAction::None, StrId::STR_CAT_DISPLAY)
+          .dependsOn(dynamicWallpaperNoRtcDevice),
       //   └ カレンダーを重ねる（X3 かつ RTC 有効のとき）
       SettingInfo::Toggle(StrId::STR_SLEEP_CALENDAR, &CrossPointSettings::sleepCalendar, "sleepCalendar",
                           StrId::STR_CAT_DISPLAY)

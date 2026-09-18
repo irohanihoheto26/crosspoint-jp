@@ -6,14 +6,14 @@
 class GfxRenderer;
 enum Color : uint8_t;
 
-// 「年の進み」スリープ画面
+// 「動的壁紙」スリープ画面
 //
-// 年月日だけで決まる壁紙。今年の何割が過ぎたかを図形で示し、残り日数と経過率を
-// 文字でも入れる。時刻は使わないので、ロックした瞬間の日付で絵が確定する。
+// 日付で毎日変わる壁紙。現在の種類（水位・年格子・升目）はいずれも「今年の何割が
+// 過ぎたか」を図形で示し、残り日数と経過率を文字でも入れる。時刻は使わないので、ロックした瞬間の日付で絵が確定する。
 // 描画はすべて既存のフレームバッファへの直接描画で、追加のヒープ確保はない。
-class YearProgressSleepScreen {
+class DynamicWallpaper {
  public:
-  // style は CrossPointSettings::YEAR_PROGRESS_STYLE の値。
+  // style は CrossPointSettings::DYNAMIC_WALLPAPER_STYLE の値。
   // 呼び出し側で clearScreen 済みである必要はない（内部で白に塗る）。
   // displayBuffer は呼ばない（呼び出し側でカレンダー等を重ねてから表示する）。
   static void render(const GfxRenderer& renderer, uint8_t style, const struct tm& date);

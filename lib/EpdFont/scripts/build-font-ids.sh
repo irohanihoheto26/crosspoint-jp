@@ -136,20 +136,20 @@ ruby -rdigest -e 'puts [
 ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
 ))"
 
-echo "#define YEARPROGRESS_26_FONT_ID ($(
+echo "#define WALLPAPER_26_FONT_ID ($(
 ruby -rdigest -e 'puts [
-  "./yearprogress_26_bold.h",
+  "./wallpaper_26_bold.h",
 ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
 ))"
 
-echo "#define YEARPROGRESS_13_FONT_ID ($(
+echo "#define WALLPAPER_13_FONT_ID ($(
 ruby -rdigest -e 'puts [
-  "./yearprogress_13_bold.h",
+  "./wallpaper_13_bold.h",
 ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
 ))"
 
-echo "#define YEARPROGRESS_8_FONT_ID ($(
+echo "#define WALLPAPER_8_FONT_ID ($(
 ruby -rdigest -e 'puts [
-  "./yearprogress_8_bold.h",
+  "./wallpaper_8_bold.h",
 ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
 ))"

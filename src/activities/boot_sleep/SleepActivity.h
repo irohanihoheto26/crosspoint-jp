@@ -15,7 +15,7 @@ class SleepActivity final : public Activity {
   void renderCoverSleepScreen() const;
   void renderBitmapSleepScreen(const Bitmap& bitmap) const;
   void renderBlankSleepScreen() const;
-  void renderYearProgressSleepScreen() const;
+  void renderDynamicWallpaper() const;
   void renderCalendarOverlay() const;
   void drawCalendarIfPending() const;
   static bool isTimeValid();

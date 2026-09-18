@@ -40,11 +40,16 @@ class CrossPointSettings {
     COVER = 3,
     BLANK = 4,
     COVER_CUSTOM = 5,
-    YEAR_PROGRESS = 6,
+    DYNAMIC_WALLPAPER = 6,
     SLEEP_SCREEN_MODE_COUNT
   };
-  // 「年の進み」スリープ画面の表示スタイル
-  enum YEAR_PROGRESS_STYLE { YP_WATER_LEVEL = 0, YP_DOT_GRID = 1, YP_SQUARE_GRID = 2, YEAR_PROGRESS_STYLE_COUNT };
+  // 「動的壁紙」スリープ画面の表示スタイル
+  enum DYNAMIC_WALLPAPER_STYLE {
+    DW_WATER_LEVEL = 0,
+    DW_DOT_GRID = 1,
+    DW_SQUARE_GRID = 2,
+    DYNAMIC_WALLPAPER_STYLE_COUNT
+  };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
   enum SLEEP_SCREEN_COVER_FILTER {
     NO_FILTER = 0,
@@ -193,8 +198,8 @@ class CrossPointSettings {
   // 遷移が「壁紙が数秒後に淡くなる」現象として認識されるため。ユーザーは設定で
   // NO_FILTER に戻すことで grayscale 表示を選択できる。
   uint8_t sleepScreenCoverFilter = BLACK_AND_WHITE;
-  // 「年の進み」スリープ画面の表示スタイル
-  uint8_t yearProgressStyle = YP_DOT_GRID;
+  // 「動的壁紙」スリープ画面の表示スタイル
+  uint8_t dynamicWallpaperStyle = DW_DOT_GRID;
   // RTC (DS3231) feature master switch — controls sleep mode on X3
   // 0=OFF (full power-off, battery-efficient), 1=ON (deep sleep, DS3231 time preserved)
   uint8_t rtcEnabled = 0;
