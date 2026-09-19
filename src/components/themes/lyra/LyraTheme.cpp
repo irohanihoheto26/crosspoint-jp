@@ -6,7 +6,9 @@
 #include <HalStorage.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -86,7 +88,9 @@ void drawLyraBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidt
   }
 }
 
-const uint8_t* iconForName(UIIcon icon, int size) {
+}  // namespace
+
+const uint8_t* LyraTheme::iconForName(UIIcon icon, int size) {
   if (size == 24) {
     switch (icon) {
       case UIIcon::Folder:
@@ -132,7 +136,6 @@ const uint8_t* iconForName(UIIcon icon, int size) {
   }
   return nullptr;
 }
-}  // namespace
 
 void LyraTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
   // Left aligned: icon on left, percentage on right (reader mode)
@@ -550,6 +553,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     constexpr int readingStatusIconTopMargin = 8;
     const ReadingStatus status0 = bookProgress.empty() ? ReadingStatus::Unread : bookProgress[0].status;
     const bool hasReadingStatusIcon = status0 == ReadingStatus::Reading || status0 == ReadingStatus::Finished;
+    const bool hasPercent = !bookProgress.empty() && bookProgress[0].hasPercent();
     const int readingStatusBlockHeight =
         hasReadingStatusIcon ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
 
@@ -569,6 +573,25 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       titleY += readingStatusIconTopMargin;
       const uint8_t* iconBitmap = (status0 == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
       renderer.drawIcon(iconBitmap, textX, titleY, readingStatusIconSize, readingStatusIconSize);
+      // アイコンの右に進捗バーと百分率（3 Covers と同じ。読了は満タンのバーだけで数字は省く）
+      if (hasPercent) {
+        const int barX = textX + readingStatusIconSize + 6;
+        const int barRight = tileX + tileWidth - hPaddingInSelection;
+        constexpr int barHeight = 8;
+        char percentText[8];
+        snprintf(percentText, sizeof(percentText), "%d%%", bookProgress[0].percent);
+        const int percentWidth =
+            (status0 == ReadingStatus::Finished) ? 0 : renderer.getTextWidth(SMALL_FONT_ID, percentText) + 6;
+        const int barWidth = std::min(barRight - barX - percentWidth, 200);
+        if (barWidth > 20) {
+          const int barY = titleY + (readingStatusIconSize - barHeight) / 2;
+          drawThinProgressBar(renderer, Rect{barX, barY, barWidth, barHeight}, bookProgress[0].percent, 4);
+          if (percentWidth > 0) {
+            const int textY = titleY + (readingStatusIconSize - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
+            renderer.drawText(SMALL_FONT_ID, barX + barWidth + 6, textY, percentText, true);
+          }
+        }
+      }
     }
   } else {
     drawEmptyRecents(renderer, rect);

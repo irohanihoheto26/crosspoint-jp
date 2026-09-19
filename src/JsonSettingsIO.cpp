@@ -230,6 +230,13 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     }
   }
 
+  // テーマ設定の移行: 旧キー "uiTheme" は 0=Classic（廃止）, 1=Lyra, 2=Lyra 3 Covers。
+  // 新キー "theme" は 0=Lyra, 1=Lyra 3 Covers, 2=Vega。新キーが無く旧キーだけあれば読み替える
+  if (doc["theme"].isNull() && !doc["uiTheme"].isNull()) {
+    s.uiTheme = CrossPointSettings::migrateLegacyUiTheme(doc["uiTheme"] | static_cast<uint8_t>(0));
+    if (needsResave) *needsResave = true;
+  }
+
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   using S = CrossPointSettings;
   s.frontButtonBack =

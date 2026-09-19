@@ -171,7 +171,12 @@ class CrossPointSettings {
   enum HIDE_BATTERY_PERCENTAGE { HIDE_NEVER = 0, HIDE_READER = 1, HIDE_ALWAYS = 2, HIDE_BATTERY_PERCENTAGE_COUNT };
 
   // UI Theme
-  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2 };
+  // 値は設定一覧（SettingsList.h）の enumValues の並びと一致させる。
+  // 旧 Classic（廃止）を含む旧番号は JsonSettingsIO の "uiTheme" キー移行で読み替える
+  enum UI_THEME { LYRA = 0, LYRA_3_COVERS = 1, VEGA = 2 };
+  // 旧番号（0=Classic, 1=Lyra, 2=Lyra 3 Covers）を現在の UI_THEME に読み替える。
+  // Classic は廃止したので既定の Lyra に落とす
+  static uint8_t migrateLegacyUiTheme(uint8_t legacy) { return legacy == 2 ? LYRA_3_COVERS : LYRA; }
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };

@@ -72,8 +72,13 @@ class LyraTheme : public BaseTheme {
                            const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                            bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                            std::function<bool()> storeCoverBuffer) const override;
-  void drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) const;
+  // 「最近の本」が空のときの表示。派生テーマ（Vega）が差し替える
+  virtual void drawEmptyRecents(const GfxRenderer& renderer, Rect rect) const;
   Rect drawPopup(const GfxRenderer& renderer, const char* message) const override;
   void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const override;
   bool showsFileIcons() const override { return true; }
+
+ protected:
+  // UIIcon から Lyra 系のアイコンビットマップを引く（size は 24 か 32）。派生テーマも使う
+  static const uint8_t* iconForName(UIIcon icon, int size);
 };
