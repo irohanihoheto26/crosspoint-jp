@@ -15,6 +15,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "DynamicWallpaper.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "components/themes/HintOrientationScope.h"
@@ -68,6 +69,9 @@ void SleepActivity::onEnter() {
       } else {
         renderCustomSleepScreen();
       }
+      break;
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::DYNAMIC_WALLPAPER):
+      renderDynamicWallpaper();
       break;
     default:
       renderDefaultSleepScreen();
@@ -360,6 +364,23 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+}
+
+void SleepActivity::renderDynamicWallpaper() const {
+  // 日付が信用できないときは既定のスリープ画面に退避する
+  if (!isTimeValid()) {
+    LOG_ERR("SLP", "Time not valid, falling back to default sleep screen");
+    renderDefaultSleepScreen();
+    return;
+  }
+  const time_t now = time(nullptr);
+  struct tm timeInfo;
+  localtime_r(&now, &timeInfo);
+
+  DynamicWallpaper::render(renderer, SETTINGS.dynamicWallpaperStyle, timeInfo);
+  // カレンダーを BW パスに挿入（displayBuffer 前）
+  drawCalendarIfPending();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 

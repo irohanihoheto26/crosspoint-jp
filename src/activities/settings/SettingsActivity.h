@@ -27,6 +27,7 @@ enum class SettingAction {
   AozoraBunko,
   HorizontalSettings,
   VerticalSettings,
+  JumpToRtcSetting,  // 本体タブの「RTC 有効」へ移動する（依存関係の案内行から）
 };
 
 struct SettingInfo {
@@ -58,8 +59,19 @@ struct SettingInfo {
   std::function<std::string()> stringGetter;
   std::function<void(const std::string&)> stringSetter;
 
+  // 親設定への依存。visibleWhen() が偽の間は端末の設定画面に表示しない（JSON API には常に含まれる）。
+  // depth は字下げの段数（1 = 親の直下、2 = 孫）。
+  bool (*visibleWhen)() = nullptr;
+  uint8_t depth = 0;
+
   SettingInfo& withObfuscated() {
     obfuscated = true;
+    return *this;
+  }
+
+  SettingInfo& dependsOn(bool (*predicate)(), uint8_t indentDepth = 1) {
+    visibleWhen = predicate;
+    depth = indentDepth;
     return *this;
   }
 
@@ -91,6 +103,17 @@ struct SettingInfo {
     s.nameId = nameId;
     s.type = SettingType::ACTION;
     s.action = action;
+    return s;
+  }
+
+  // 値を持たない案内行。端末の一覧にだけ出す（key が無いので JSON API には含まれない）。
+  // action を指定すると Confirm で移動などができる。
+  static SettingInfo Info(StrId nameId, SettingAction action, StrId category) {
+    SettingInfo s;
+    s.nameId = nameId;
+    s.type = SettingType::ACTION;
+    s.action = action;
+    s.category = category;
     return s;
   }
 
@@ -158,7 +181,6 @@ class SettingsActivity final : public Activity {
   std::vector<SettingInfo> readerSettings;
   std::vector<SettingInfo> controlsSettings;
   std::vector<SettingInfo> systemSettings;
-  std::vector<SettingInfo> rtcSettings;
   const std::vector<SettingInfo>* currentSettings = nullptr;
 
   const std::function<void()> onGoHome;
@@ -166,7 +188,7 @@ class SettingsActivity final : public Activity {
   int initialSettingIndex = 0;
   bool skipNextButtonCheck = false;
 
-  static constexpr int MAX_CATEGORIES = 5;
+  static constexpr int MAX_CATEGORIES = 4;
   static const StrId categoryNames[MAX_CATEGORIES];
   int categoryCount = MAX_CATEGORIES;
 

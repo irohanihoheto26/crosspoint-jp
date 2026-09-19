@@ -1,5 +1,6 @@
 #pragma once
 
+#include <HalGPIO.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <SdCardFontRegistry.h>
@@ -96,24 +97,67 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
 // ACTION-type entries and entries without a key are device-only.
 // Pass registry to include SD card fonts in the font family setting.
 inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry = nullptr) {
+  // 子設定の表示条件（親の値に依存する項目は、親がその機能を使うときだけ端末に表示する）
+  using S = CrossPointSettings;
+  constexpr auto sleepUsesBitmap = [] {
+    // カスタム画像・カバーは BMP を描くので、収め方やフィルターが意味を持つ
+    return SETTINGS.sleepScreen == S::CUSTOM || SETTINGS.sleepScreen == S::COVER ||
+           SETTINGS.sleepScreen == S::COVER_CUSTOM;
+  };
+  constexpr auto sleepUsesCover = [] {
+    return SETTINGS.sleepScreen == S::COVER || SETTINGS.sleepScreen == S::COVER_CUSTOM;
+  };
+  constexpr auto sleepIsDynamicWallpaper = [] { return SETTINGS.sleepScreen == S::DYNAMIC_WALLPAPER; };
+  // DS3231 を持つ X3 だけが RTC を使える。カレンダーの重ね描きは RTC で日付が保てるときだけ意味がある
+  constexpr auto hasRtc = [] { return gpio.deviceIsX3(); };
+  constexpr auto calendarAvailable = [] { return gpio.deviceIsX3() && SETTINGS.rtcEnabled != 0; };
+  constexpr auto calendarOn = [] {
+    return gpio.deviceIsX3() && SETTINGS.rtcEnabled != 0 && SETTINGS.sleepCalendar != 0;
+  };
+  // 動的壁紙は日付が必要。スリープは電源断なので、DS3231 を使う（X3 で RTC 有効）以外では
+  // 起きた時点で時刻が失われ、既定のスリープ画面に退避する。その事情を設定画面で示す
+  constexpr auto dynamicWallpaperNeedsRtc = [] {
+    return gpio.deviceIsX3() && SETTINGS.sleepScreen == S::DYNAMIC_WALLPAPER && SETTINGS.rtcEnabled == 0;
+  };
+  constexpr auto dynamicWallpaperNoRtcDevice = [] {
+    return gpio.deviceIsX4() && SETTINGS.sleepScreen == S::DYNAMIC_WALLPAPER;
+  };
+
   std::vector<SettingInfo> v = {
       // --- Display ---
+      // スリープ画面（親）
       SettingInfo::Enum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
                         {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
-                         StrId::STR_COVER_CUSTOM},
+                         StrId::STR_COVER_CUSTOM, StrId::STR_DYNAMIC_WALLPAPER},
                         "sleepScreen", StrId::STR_CAT_DISPLAY),
+      //   └ カバー: 収め方
       SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
-                        {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY),
+                        {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY)
+          .dependsOn(sleepUsesCover),
+      //   └ カスタム・カバー: 画像フィルター
       SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
                         {StrId::STR_FILTER_GRAYSCALE, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
-                        "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY),
-      // --- RTC (X3 only) ---
-      SettingInfo::Toggle(StrId::STR_RTC_ENABLED, &CrossPointSettings::rtcEnabled, "rtcEnabled", StrId::STR_CAT_RTC),
+                        "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY)
+          .dependsOn(sleepUsesBitmap),
+      //   └ 動的壁紙: 種類
+      SettingInfo::Enum(StrId::STR_DYNAMIC_WALLPAPER_STYLE, &CrossPointSettings::dynamicWallpaperStyle,
+                        {StrId::STR_DW_WATER_LEVEL, StrId::STR_DW_DOT_GRID, StrId::STR_DW_SQUARE_GRID},
+                        "dynamicWallpaperStyle", StrId::STR_CAT_DISPLAY)
+          .dependsOn(sleepIsDynamicWallpaper),
+      //   └ 動的壁紙の前提の案内。X3 で RTC 無効なら押すと本体タブの「RTC 有効」へ移動
+      SettingInfo::Info(StrId::STR_DW_NEEDS_RTC, SettingAction::JumpToRtcSetting, StrId::STR_CAT_DISPLAY)
+          .dependsOn(dynamicWallpaperNeedsRtc),
+      SettingInfo::Info(StrId::STR_DW_NO_RTC_DEVICE, SettingAction::None, StrId::STR_CAT_DISPLAY)
+          .dependsOn(dynamicWallpaperNoRtcDevice),
+      //   └ カレンダーを重ねる（X3 かつ RTC 有効のとき）
       SettingInfo::Toggle(StrId::STR_SLEEP_CALENDAR, &CrossPointSettings::sleepCalendar, "sleepCalendar",
-                          StrId::STR_CAT_RTC),
+                          StrId::STR_CAT_DISPLAY)
+          .dependsOn(calendarAvailable),
+      //       └ カレンダー配置
       SettingInfo::Enum(StrId::STR_SLEEP_CALENDAR_POSITION, &CrossPointSettings::sleepCalendarPosition,
                         {StrId::STR_CALENDAR_POS_TOP, StrId::STR_CALENDAR_POS_CENTER, StrId::STR_CALENDAR_POS_BOTTOM},
-                        "sleepCalendarPosition", StrId::STR_CAT_RTC),
+                        "sleepCalendarPosition", StrId::STR_CAT_DISPLAY)
+          .dependsOn(calendarOn, 2),
       SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
                         {StrId::STR_NEVER, StrId::STR_IN_READER, StrId::STR_ALWAYS}, "hideBatteryPercentage",
                         StrId::STR_CAT_DISPLAY),
@@ -160,6 +204,9 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
       SettingInfo::Enum(StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeout,
                         {StrId::STR_MIN_1, StrId::STR_MIN_5, StrId::STR_MIN_10, StrId::STR_MIN_15, StrId::STR_MIN_30},
                         "sleepTimeout", StrId::STR_CAT_SYSTEM),
+      // RTC（DS3231）を使うか。X3 のみ。スリープ中も時刻を保つが電池を消費する
+      SettingInfo::Toggle(StrId::STR_RTC_ENABLED, &CrossPointSettings::rtcEnabled, "rtcEnabled", StrId::STR_CAT_SYSTEM)
+          .dependsOn(hasRtc, 0),
       SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
                           StrId::STR_CAT_SYSTEM),
       SettingInfo::Toggle(StrId::STR_DEBUG_DISPLAY, &CrossPointSettings::debugDisplay, "debugDisplay",

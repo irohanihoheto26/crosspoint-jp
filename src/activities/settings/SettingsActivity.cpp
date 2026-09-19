@@ -29,32 +29,29 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
-const StrId SettingsActivity::categoryNames[MAX_CATEGORIES] = {
-    StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER, StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM, StrId::STR_CAT_RTC};
+const StrId SettingsActivity::categoryNames[MAX_CATEGORIES] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
+                                                               StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
 
 void SettingsActivity::rebuildSettingsLists() {
   displaySettings.clear();
   readerSettings.clear();
   controlsSettings.clear();
   systemSettings.clear();
-  rtcSettings.clear();
 
-  for (auto& setting : getSettingsList(&sdFontSystem.registry())) {
+  // 値を変えるたびに呼ばれるので、SettingInfo（vector と std::function を持つ）はコピーせず move する
+  auto allSettings = getSettingsList(&sdFontSystem.registry());
+  for (auto& setting : allSettings) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
+    // 親設定が使っていない機能の子設定は表示しない（依存関係は SettingsList.h の dependsOn を参照）
+    if (setting.visibleWhen && !setting.visibleWhen()) continue;
     if (setting.category == StrId::STR_CAT_DISPLAY) {
-      displaySettings.push_back(setting);
+      displaySettings.push_back(std::move(setting));
     } else if (setting.category == StrId::STR_CAT_READER) {
-      readerSettings.push_back(setting);
+      readerSettings.push_back(std::move(setting));
     } else if (setting.category == StrId::STR_CAT_CONTROLS) {
-      controlsSettings.push_back(setting);
+      controlsSettings.push_back(std::move(setting));
     } else if (setting.category == StrId::STR_CAT_SYSTEM) {
-      systemSettings.push_back(setting);
-    } else if (setting.category == StrId::STR_CAT_RTC) {
-      // RTC無効時はマスタートグルのみ表示（カレンダーサブ設定を隠す）
-      if (!SETTINGS.rtcEnabled && setting.nameId != StrId::STR_RTC_ENABLED) {
-        continue;
-      }
-      rtcSettings.push_back(setting);
+      systemSettings.push_back(std::move(setting));
     }
   }
 
@@ -92,11 +89,6 @@ void SettingsActivity::rebuildSettingsLists() {
       currentSettings = &controlsSettings;
       break;
     case 3:
-      currentSettings = &systemSettings;
-      break;
-    case 4:
-      currentSettings = &rtcSettings;
-      break;
     default:
       currentSettings = &systemSettings;
       break;
@@ -106,9 +98,6 @@ void SettingsActivity::rebuildSettingsLists() {
 
 void SettingsActivity::onEnter() {
   Activity::onEnter();
-
-  // X4 にはDS3231がないためRTCタブを非表示
-  categoryCount = gpio.deviceIsX4() ? 4 : MAX_CATEGORIES;
 
   // Initialize selection based on caller hint.
   if (initialCategoryIndex < 0 || initialCategoryIndex >= categoryCount) {
@@ -217,9 +206,6 @@ void SettingsActivity::loop() {
       case 3:
         currentSettings = &systemSettings;
         break;
-      case 4:
-        currentSettings = &rtcSettings;
-        break;
     }
     settingsCount = static_cast<int>(currentSettings->size());
   }
@@ -241,19 +227,7 @@ void SettingsActivity::toggleCurrentSetting() {
     if (setting.nameId == StrId::STR_INVERT_IMAGES) {
       renderer.setInvertImagesInDarkMode(SETTINGS.invertImages);
     }
-    // RTCマスタートグル変更時はサブ設定の表示/非表示を更新
-    if (setting.nameId == StrId::STR_RTC_ENABLED) {
-      rebuildSettingsLists();
-      // 選択位置をクランプ（サブ設定が消えた場合に備える）
-      if (selectedSettingIndex > settingsCount) {
-        selectedSettingIndex = settingsCount;
-      }
-    }
   } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
-    // Calendar Position: skip when calendar is disabled
-    if (setting.nameId == StrId::STR_SLEEP_CALENDAR_POSITION && SETTINGS.sleepCalendar == 0) {
-      return;
-    }
     // Font Size: skip when external font is selected (fixed bitmap size)
     if (setting.nameId == StrId::STR_FONT_SIZE && FontMgr.getSelectedIndex() >= 0) {
       return;
@@ -381,6 +355,19 @@ void SettingsActivity::toggleCurrentSetting() {
                                  requestUpdate();
                                });
         break;
+      case SettingAction::JumpToRtcSetting: {
+        // 本体タブへ移り、「RTC 有効」にカーソルを置く
+        selectedCategoryIndex = 3;
+        rebuildSettingsLists();
+        selectedSettingIndex = 1;
+        for (size_t i = 0; i < currentSettings->size(); i++) {
+          if ((*currentSettings)[i].nameId == StrId::STR_RTC_ENABLED) {
+            selectedSettingIndex = static_cast<int>(i) + 1;
+            break;
+          }
+        }
+        break;
+      }
       case SettingAction::None:
         // Do nothing
         break;
@@ -392,6 +379,12 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 
   SETTINGS.saveToFile();
+
+  // 値が変わると子設定の表示条件も変わりうるので一覧を作り直し、選択位置をクランプする
+  rebuildSettingsLists();
+  if (selectedSettingIndex > settingsCount) {
+    selectedSettingIndex = settingsCount;
+  }
 }
 
 void SettingsActivity::render(RenderLock&&) {
@@ -420,7 +413,14 @@ void SettingsActivity::render(RenderLock&&) {
            area.width,
            area.height - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing)},
       settingsCount, selectedSettingIndex - 1,
-      [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
+      [&settings](int index) {
+        // 子設定は親の下に字下げして依存関係を見せる
+        const auto& setting = settings[index];
+        std::string label(setting.depth * 3, ' ');
+        label += I18N.get(setting.nameId);
+        return label;
+      },
+      nullptr, nullptr,
       [&settings](int i) {
         const auto& setting = settings[i];
         std::string valueText = "";

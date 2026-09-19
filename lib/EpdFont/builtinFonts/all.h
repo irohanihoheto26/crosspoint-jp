@@ -53,3 +53,6 @@
 #include <builtinFonts/ubuntu_10_regular.h>
 #include <builtinFonts/ubuntu_12_bold.h>
 #include <builtinFonts/ubuntu_12_regular.h>
+#include <builtinFonts/wallpaper_8_bold.h>
+#include <builtinFonts/wallpaper_13_bold.h>
+#include <builtinFonts/wallpaper_26_bold.h>

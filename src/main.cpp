@@ -142,6 +142,14 @@ EpdFont ui12RegularFont(&ubuntu_12_regular);
 EpdFont ui12BoldFont(&ubuntu_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 
+// 「動的壁紙」スリープ画面の見出し用フォント（数字と英大文字のみ、1bit、Noto Sans Bold）
+EpdFont wallpaper26Font(&wallpaper_26_bold);
+EpdFontFamily wallpaper26FontFamily(&wallpaper26Font);
+EpdFont wallpaper13Font(&wallpaper_13_bold);
+EpdFontFamily wallpaper13FontFamily(&wallpaper13Font);
+EpdFont wallpaper8Font(&wallpaper_8_bold);
+EpdFontFamily wallpaper8FontFamily(&wallpaper8Font);
+
 // measurement of power button press duration calibration value
 unsigned long t1 = 0;
 unsigned long t2 = 0;
@@ -283,6 +291,13 @@ void setupDisplayAndFonts() {
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  renderer.insertFont(WALLPAPER_26_FONT_ID, wallpaper26FontFamily);
+  renderer.insertFont(WALLPAPER_13_FONT_ID, wallpaper13FontFamily);
+  renderer.insertFont(WALLPAPER_8_FONT_ID, wallpaper8FontFamily);
+  // 内蔵 CJK UI フォントへの ASCII 置き換えを受けず、自前の字形で描く
+  renderer.setExactGlyphFont(WALLPAPER_26_FONT_ID);
+  renderer.setExactGlyphFont(WALLPAPER_13_FONT_ID);
+  renderer.setExactGlyphFont(WALLPAPER_8_FONT_ID);
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);

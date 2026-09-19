@@ -1220,6 +1220,7 @@ void CrossPointWebServer::handleGetSettings() const {
     doc["key"] = s.key;
     doc["name"] = I18N.get(s.nameId);
     doc["category"] = I18N.get(s.category);
+    if (s.depth > 0) doc["depth"] = s.depth;  // 親設定の子項目（Web では字下げ表示）
 
     switch (s.type) {
       case SettingType::TOGGLE: {

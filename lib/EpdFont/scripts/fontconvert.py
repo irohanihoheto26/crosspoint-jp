@@ -16,6 +16,7 @@ parser.add_argument("size", type=int, help="font size to use.")
 parser.add_argument("fontstack", action="store", nargs='+', help="list of font files, ordered by descending priority.")
 parser.add_argument("--2bit", dest="is2Bit", action="store_true", help="generate 2-bit greyscale bitmap instead of 1-bit black and white.")
 parser.add_argument("--additional-intervals", dest="additional_intervals", action="append", help="Additional code point intervals to export as min,max. This argument can be repeated.")
+parser.add_argument("--no-default-intervals", dest="no_default_intervals", action="store_true", help="Export only the code points given by --additional-intervals (skip the built-in Latin/Cyrillic/... intervals). Useful for tiny special-purpose fonts such as large numerals.")
 parser.add_argument("--compress", dest="compress", action="store_true", help="Compress glyph bitmaps using DEFLATE with group-based compression.")
 parser.add_argument("--force-autohint", dest="force_autohint", action="store_true", help="Force FreeType auto-hinter instead of native font hinting. Improves stem width consistency for fonts with weak or no native TrueType hints.")
 parser.add_argument("--pnum", dest="pnum", action="store_true", help="Use proportional numerals (pnum OpenType feature) instead of default tabular figures. Reduces visual gaps between digits in running prose.")
@@ -341,6 +342,8 @@ def extract_vert_mappings(font_paths):
             return result
     return {}
 
+if args.no_default_intervals:
+    intervals = []
 unmerged_intervals = sorted(intervals + add_ints)
 intervals = []
 unvalidated_intervals = []
