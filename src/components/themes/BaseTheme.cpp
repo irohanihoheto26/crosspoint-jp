@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 
 #include "HintOrientationScope.h"
@@ -441,12 +442,30 @@ int BaseTheme::getHomeRecentBooksCount(const GfxRenderer& /*renderer*/) const {
   return UITheme::getInstance().getMetrics().homeRecentBooksCount;
 }
 
+void BaseTheme::drawThinProgressBar(const GfxRenderer& renderer, Rect rect, int percent, int cornerRadius,
+                                    bool inverted) {
+  if (rect.width <= 2 || rect.height <= 2) return;
+  percent = std::max(0, std::min(100, percent));
+  const bool ink = !inverted;
+  if (cornerRadius > 0) {
+    renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, cornerRadius, ink);
+  } else {
+    renderer.drawRect(rect.x, rect.y, rect.width, rect.height, ink);
+  }
+  // 枠の内側 1px を空けて塗る。1% でも 1px は見えるように切り上げる
+  const int innerWidth = rect.width - 4;
+  const int fillWidth = (innerWidth * percent + 99) / 100;
+  if (fillWidth > 0) {
+    renderer.fillRect(rect.x + 2, rect.y + 2, std::min(fillWidth, innerWidth), rect.height - 4, ink);
+  }
+}
+
 void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                    const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                    const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                     bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                     std::function<bool()> storeCoverBuffer) const {
-  (void)bookStatuses;
   const bool hasContinueReading = !recentBooks.empty();
+  const bool hasPercent = hasContinueReading && !bookProgress.empty() && bookProgress[0].hasPercent();
   const bool bookSelected = hasContinueReading && selectorIndex == 0;
 
   // --- Top "book" card for the current title (selectorIndex == 0) ---
@@ -601,6 +620,9 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     // Vertically center the title block within the card
     int titleYStart = bookY + (bookHeight - totalTextHeight) / 2;
+    // 題名ブロック（表紙ありのときはその周りの箱）の下端。進捗バーはここを基準に置く
+    constexpr int titleBoxPadding = 8;
+    const int titleBlockBottom = titleYStart + totalTextHeight + (coverRendered ? titleBoxPadding : 0);
 
     const auto truncatedAuthor = lastBookAuthor.empty()
                                      ? std::string{}
@@ -608,7 +630,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     // If cover image was rendered, draw box behind title and author
     if (coverRendered) {
-      constexpr int boxPadding = 8;
+      constexpr int boxPadding = titleBoxPadding;
       // Calculate the max text width for the box
       int maxTextWidth = 0;
       for (const auto& line : lines) {
@@ -649,6 +671,28 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     if (!truncatedAuthor.empty()) {
       titleYStart += renderer.getLineHeight(UI_10_FONT_ID) / 2;
       drawCardCentered(UI_10_FONT_ID, titleYStart, truncatedAuthor.c_str());
+    }
+
+    // 進捗バー（タイトル枠の下、「続きを読む」の上）。表紙の上に描くときは白地の帯を敷く
+    if (hasPercent) {
+      // 箱の下枠を削らないよう、箱の下端から 6px 空ける（著者の有無で隙間が変わらない）
+      const int barY = titleBlockBottom + 6 + (coverRendered ? 6 : 0);
+      constexpr int barHeight = 8;
+      char percentText[8];
+      snprintf(percentText, sizeof(percentText), "%d%%", bookProgress[0].percent);
+      const int percentWidth = renderer.getTextWidth(UI_10_FONT_ID, percentText);
+      // バー＋数字がカード幅（両端 20px の余白）に収まるようにバーの長さを決める
+      const int barWidth = std::min(bookWidth - 40 - 8 - percentWidth, 200);
+      const int rowWidth = barWidth + 8 + percentWidth;
+      const int rowX = bookX + (bookWidth - rowWidth) / 2;
+      if (coverRendered) {
+        renderer.fillRect(rowX - 6, barY - 6, rowWidth + 12, renderer.getLineHeight(UI_10_FONT_ID) + 8, bookSelected);
+        renderer.drawRect(rowX - 6, barY - 6, rowWidth + 12, renderer.getLineHeight(UI_10_FONT_ID) + 8, !bookSelected);
+      }
+      const int textLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+      drawThinProgressBar(renderer, Rect{rowX, barY + (textLineHeight - barHeight) / 2, barWidth, barHeight},
+                          bookProgress[0].percent, 0, bookSelected);
+      renderer.drawText(UI_10_FONT_ID, rowX + barWidth + 8, barY, percentText, !bookSelected);
     }
 
     // "Continue Reading" label at the bottom

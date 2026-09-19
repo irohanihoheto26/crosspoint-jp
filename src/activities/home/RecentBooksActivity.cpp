@@ -5,6 +5,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cstdio>
 
 #include "MappedInputManager.h"
 #include "ReadingStatusHelper.h"
@@ -18,17 +19,17 @@ constexpr unsigned long GO_HOME_MS = 1000;
 
 void RecentBooksActivity::loadRecentBooks() {
   recentBooks.clear();
-  bookStatuses.clear();
+  bookProgress.clear();
   const auto& books = RECENT_BOOKS.getBooks();
   recentBooks.reserve(books.size());
-  bookStatuses.reserve(books.size());
+  bookProgress.reserve(books.size());
 
   for (const auto& book : books) {
     if (!Storage.exists(book.path.c_str())) {
       continue;
     }
     recentBooks.push_back(book);
-    bookStatuses.push_back(getReadingStatus(book.path, "/.crosspoint"));
+    bookProgress.push_back(getReadingProgress(book.path, "/.crosspoint"));
   }
 }
 
@@ -45,7 +46,7 @@ void RecentBooksActivity::onEnter() {
 void RecentBooksActivity::onExit() {
   Activity::onExit();
   recentBooks.clear();
-  bookStatuses.clear();
+  bookProgress.clear();
 }
 
 void RecentBooksActivity::loop() {
@@ -106,7 +107,14 @@ void RecentBooksActivity::render(RenderLock&&) {
     GUI.drawList(
         renderer, Rect{area.x, contentTop, area.width, contentHeight}, recentBooks.size(), selectorIndex,
         [this](int index) { return recentBooks[index].title; }, [this](int index) { return recentBooks[index].author; },
-        [this](int index) { return UITheme::getFileIcon(recentBooks[index].path, bookStatuses[index]); });
+        [this](int index) { return UITheme::getFileIcon(recentBooks[index].path, bookProgress[index].status); },
+        // 右端に進捗率。進捗率が保存されていない旧キャッシュは空欄
+        [this](int index) {
+          if (!bookProgress[index].hasPercent()) return std::string();
+          char buf[8];
+          snprintf(buf, sizeof(buf), "%d%%", bookProgress[index].percent);
+          return std::string(buf);
+        });
   }
 
   // Help text

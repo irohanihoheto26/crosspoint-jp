@@ -178,8 +178,9 @@ class BaseTheme {
   // Home に並べる「最近の本」の枚数。テーマ既定は metrics.homeRecentBooksCount だが、
   // 横向きで幅が足りないテーマは少なくできる（Lyra 3 Covers は横向きで 2 枚）。
   virtual int getHomeRecentBooksCount(const GfxRenderer& renderer) const;
+  // bookProgress は recentBooks と同じ長さ（各本の読書状態と進捗率）
   virtual void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                   const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                   const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                    bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                    std::function<bool()> storeCoverBuffer) const;
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
@@ -197,6 +198,11 @@ class BaseTheme {
                                const char* secondaryLabel = nullptr, KeyboardKeyType keyType = KeyboardKeyType::Normal,
                                bool inactiveSelection = false) const;
   virtual bool showsFileIcons() const { return false; }
+
+  // 細い進捗バー（ホーム画面の「最近の本」用）。外枠を描き、percent ぶんを塗る。
+  // cornerRadius = 0 で角丸なし。inverted = true は黒地に白で描く（選択中のカード内など）
+  static void drawThinProgressBar(const GfxRenderer& renderer, Rect rect, int percent, int cornerRadius,
+                                  bool inverted = false);
 
   // Shared constants and helpers for battery drawing (used by all themes)
   static constexpr int batteryPercentSpacing = 4;

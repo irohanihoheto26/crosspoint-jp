@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -27,7 +28,7 @@ int Lyra3CoversTheme::getHomeRecentBooksCount(const GfxRenderer& renderer) const
 }
 
 void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                           const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                           const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                            bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                            std::function<bool()> storeCoverBuffer) const {
   const int coverCount = getHomeRecentBooksCount(renderer);
@@ -96,16 +97,18 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
 
       const int maxLineWidth = tileWidth - 2 * hPaddingInSelection;
 
-      auto titleLines = renderer.wrappedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth, 3);
+      // 題名は 1 行に省略する。複数行にすると進捗バーの行が下のメニューに食い込む
+      const std::string titleLine = renderer.truncatedText(SMALL_FONT_ID, recentBooks[i].title.c_str(), maxLineWidth);
 
       constexpr int readingStatusIconSize = 24;
       constexpr int readingStatusIconTopMargin = 4;
-      const bool hasReadingStatusIcon =
-          i < static_cast<int>(bookStatuses.size()) &&
-          (bookStatuses[i] == ReadingStatus::Reading || bookStatuses[i] == ReadingStatus::Finished);
+      const bool hasProgress = i < static_cast<int>(bookProgress.size());
+      const ReadingStatus status = hasProgress ? bookProgress[i].status : ReadingStatus::Unread;
+      const bool hasReadingStatusIcon = status == ReadingStatus::Reading || status == ReadingStatus::Finished;
+      const bool hasPercent = hasProgress && bookProgress[i].hasPercent();
 
       const int titleLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-      const int dynamicBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight;
+      const int dynamicBlockHeight = titleLineHeight;
       const int readingStatusBlockHeight =
           hasReadingStatusIcon ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
       // Add a little padding below the text inside the selection box just like the top padding (5 + hPaddingSelection)
@@ -125,16 +128,32 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
       }
 
       int currentY = tileY + Lyra3CoversMetrics::values.homeCoverHeight + hPaddingInSelection + 5;
-      for (const auto& line : titleLines) {
-        renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection, currentY, line.c_str(), true);
-        currentY += titleLineHeight;
-      }
+      renderer.drawText(SMALL_FONT_ID, tileX + hPaddingInSelection, currentY, titleLine.c_str(), true);
+      currentY += titleLineHeight;
       if (hasReadingStatusIcon) {
         currentY += readingStatusIconTopMargin;
-        const uint8_t* iconBitmap =
-            (bookStatuses[i] == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
+        const uint8_t* iconBitmap = (status == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
         renderer.drawIcon(iconBitmap, tileX + hPaddingInSelection, currentY, readingStatusIconSize,
                           readingStatusIconSize);
+        // アイコンの右に進捗バーと百分率（読了は 100% のバーだけで十分なので数字は省く）
+        if (hasPercent) {
+          const int barX = tileX + hPaddingInSelection + readingStatusIconSize + 6;
+          const int barRight = tileX + tileWidth - hPaddingInSelection;
+          constexpr int barHeight = 8;
+          char percentText[8];
+          snprintf(percentText, sizeof(percentText), "%d%%", bookProgress[i].percent);
+          const int percentWidth =
+              (status == ReadingStatus::Finished) ? 0 : renderer.getTextWidth(SMALL_FONT_ID, percentText) + 6;
+          const int barWidth = barRight - barX - percentWidth;
+          if (barWidth > 20) {
+            const int barY = currentY + (readingStatusIconSize - barHeight) / 2;
+            drawThinProgressBar(renderer, Rect{barX, barY, barWidth, barHeight}, bookProgress[i].percent, 4);
+            if (percentWidth > 0) {
+              const int textY = currentY + (readingStatusIconSize - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
+              renderer.drawText(SMALL_FONT_ID, barX + barWidth + 6, textY, percentText, true);
+            }
+          }
+        }
       }
     }
   } else {
