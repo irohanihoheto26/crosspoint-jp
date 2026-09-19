@@ -13,10 +13,13 @@
 #include <HalTiltSensor.h>
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "MappedInputManager.h"
+#include "ReadingStatusHelper.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
 #include "XtcReaderMenuActivity.h"
@@ -400,13 +403,20 @@ void XtcReaderActivity::renderPage() {
 void XtcReaderActivity::saveProgress(bool isFinished) const {
   FsFile f;
   if (Storage.openFileForWrite("XTR", xtc->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[5];
+    // 形式は docs/file-formats.md の progress.bin を参照。末尾の進捗率はホーム画面の表示用
+    uint8_t percent = ReadingProgress::PERCENT_UNKNOWN;
+    if (xtc->getPageCount() > 0) {
+      const uint32_t shown = std::min<uint32_t>(currentPage + 1, xtc->getPageCount());
+      percent = static_cast<uint8_t>((static_cast<uint64_t>(shown) * 100) / xtc->getPageCount());
+    }
+    uint8_t data[6];
     data[0] = currentPage & 0xFF;
     data[1] = (currentPage >> 8) & 0xFF;
     data[2] = (currentPage >> 16) & 0xFF;
     data[3] = (currentPage >> 24) & 0xFF;
     data[4] = isFinished ? 1 : 0;
-    f.write(data, 5);
+    data[5] = isFinished ? 100 : percent;
+    f.write(data, sizeof(data));
     f.close();
   }
 }

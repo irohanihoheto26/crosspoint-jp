@@ -29,7 +29,7 @@ class HomeActivity final : public Activity {
   int coverRectW = 0;
   int coverRectH = 0;
   std::vector<RecentBook> recentBooks;
-  std::vector<ReadingStatus> recentBookStatuses;
+  std::vector<ReadingProgress> recentBookProgress;
   void onSelectBook(const std::string& path);
   void onFileBrowserOpen();
   void onRecentsOpen();

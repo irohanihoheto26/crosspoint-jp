@@ -7,10 +7,13 @@
 #include <Serialization.h>
 #include <Utf8.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
+#include "ReadingStatusHelper.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -425,12 +428,19 @@ void TxtReaderActivity::renderStatusBar() const {
 void TxtReaderActivity::saveProgress() const {
   FsFile f;
   if (Storage.openFileForWrite("TRS", txt->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
+    // 形式は docs/file-formats.md の progress.bin を参照。末尾の進捗率はホーム画面の表示用
+    uint8_t percent = ReadingProgress::PERCENT_UNKNOWN;
+    if (totalPages > 0) {
+      const int shown = std::min(currentPage + 1, totalPages);
+      percent = static_cast<uint8_t>((static_cast<uint32_t>(shown) * 100) / static_cast<uint32_t>(totalPages));
+    }
+    uint8_t data[5];
     data[0] = currentPage & 0xFF;
     data[1] = (currentPage >> 8) & 0xFF;
     data[2] = 0;
     data[3] = 0;
-    f.write(data, 4);
+    data[4] = percent;
+    f.write(data, sizeof(data));
   }
 }
 

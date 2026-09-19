@@ -103,50 +103,8 @@ enum UIIcon {
 
 enum class KeyboardKeyType { Normal, Shift, Mode, Space, Del, Ok, Disabled };
 
-// Default theme implementation (Classic Theme)
-// Additional themes can inherit from this and override methods as needed
-
-namespace BaseMetrics {
-constexpr ThemeMetrics values = {.batteryWidth = 15,
-                                 .batteryHeight = 12,
-                                 .topPadding = 5,
-                                 .batteryBarHeight = 20,
-                                 .headerHeight = 45,
-                                 .verticalSpacing = 10,
-                                 .contentSidePadding = 20,
-                                 .listRowHeight = 30,
-                                 .listWithSubtitleRowHeight = 65,
-                                 .menuRowHeight = 45,
-                                 .menuSpacing = 8,
-                                 .tabSpacing = 10,
-                                 .tabBarHeight = 50,
-                                 .scrollBarWidth = 4,
-                                 .scrollBarRightOffset = 5,
-                                 .homeTopPadding = 40,
-                                 .homeCoverHeight = 400,
-                                 .homeCoverTileHeight = 400,
-                                 .homeRecentBooksCount = 1,
-                                 .homeContinueReadingInMenu = false,
-                                 .homeMenuTopOffset = 10,
-                                 .buttonHintsHeight = 40,
-                                 .sideButtonHintsWidth = 30,
-                                 .progressBarHeight = 16,
-                                 .progressBarMarginTop = 1,
-                                 .statusBarHorizontalMargin = 5,
-                                 .statusBarVerticalMargin = 19,
-                                 .keyboardKeyWidth = 22,
-                                 .keyboardKeyHeight = 40,
-                                 .keyboardKeySpacing = 0,
-                                 .keyboardBottomKeyHeight = 35,
-                                 .keyboardBottomKeySpacing = 5,
-                                 .keyboardBottomAligned = true,
-                                 .keyboardCenteredText = false,
-                                 .keyboardVerticalOffset = -13,
-                                 .keyboardTextFieldWidthPercent = 85,
-                                 .keyboardWidthPercent = 90,
-                                 .keyboardKeyCornerRadius = 0};
-}
-
+// テーマの共通インターフェース。各テーマ（Lyra 系）がこれを継承して描画を実装する。
+// 純粋仮想の関数はテーマごとに見た目が違うもの、実装を持つ関数は全テーマ共通のもの
 class BaseTheme {
  public:
   virtual ~BaseTheme() = default;
@@ -154,39 +112,40 @@ class BaseTheme {
   // Component drawing methods
   virtual void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total) const;
   virtual void drawBatteryLeft(const GfxRenderer& renderer, Rect rect,
-                               bool showPercentage = true) const;  // Left aligned (reader mode)
+                               bool showPercentage = true) const = 0;  // Left aligned (reader mode)
   virtual void drawBatteryRight(const GfxRenderer& renderer, Rect rect,
-                                bool showPercentage = true) const;  // Right aligned (UI headers)
+                                bool showPercentage = true) const = 0;  // Right aligned (UI headers)
   // drawButtonHints() が占める領域を、コンテンツ側が避けるための余白を返す。
   // buttonHintsHeight + verticalSpacing ぶんを、現在の向きに応じた辺に割り当てる。
   ButtonHintInsets getButtonHintInsets(const GfxRenderer& renderer) const;
   virtual void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
-                               const char* btn4) const;
-  virtual void drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const;
+                               const char* btn4) const = 0;
+  virtual void drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const = 0;
   virtual void drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                         const std::function<std::string(int index)>& rowTitle,
                         const std::function<std::string(int index)>& rowSubtitle = nullptr,
                         const std::function<UIIcon(int index)>& rowIcon = nullptr,
                         const std::function<std::string(int index)>& rowValue = nullptr, bool highlightValue = false,
-                        const std::function<bool(int index)>& rowDimmed = nullptr) const;
+                        const std::function<bool(int index)>& rowDimmed = nullptr) const = 0;
   virtual void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
-                          const char* subtitle = nullptr) const;
+                          const char* subtitle = nullptr) const = 0;
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
-                             const char* rightLabel = nullptr) const;
+                             const char* rightLabel = nullptr) const = 0;
   virtual void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
-                          bool selected) const;
+                          bool selected) const = 0;
   // Home に並べる「最近の本」の枚数。テーマ既定は metrics.homeRecentBooksCount だが、
   // 横向きで幅が足りないテーマは少なくできる（Lyra 3 Covers は横向きで 2 枚）。
   virtual int getHomeRecentBooksCount(const GfxRenderer& renderer) const;
+  // bookProgress は recentBooks と同じ長さ（各本の読書状態と進捗率）
   virtual void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                   const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                   const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                    bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
-                                   std::function<bool()> storeCoverBuffer) const;
+                                   std::function<bool()> storeCoverBuffer) const = 0;
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                               const std::function<std::string(int index)>& buttonLabel,
-                              const std::function<UIIcon(int index)>& rowIcon) const;
-  virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
-  virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
+                              const std::function<UIIcon(int index)>& rowIcon) const = 0;
+  virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const = 0;
+  virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const = 0;
   virtual void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                              const int pageCount, std::string title, const int paddingBottom = 0,
                              const int textYOffset = 0, const bool rtlProgress = false) const;
@@ -197,6 +156,11 @@ class BaseTheme {
                                const char* secondaryLabel = nullptr, KeyboardKeyType keyType = KeyboardKeyType::Normal,
                                bool inactiveSelection = false) const;
   virtual bool showsFileIcons() const { return false; }
+
+  // 細い進捗バー（ホーム画面の「最近の本」用）。外枠を描き、percent ぶんを塗る。
+  // cornerRadius = 0 で角丸なし。inverted = true は黒地に白で描く（選択中のカード内など）
+  static void drawThinProgressBar(const GfxRenderer& renderer, Rect rect, int percent, int cornerRadius,
+                                  bool inverted = false);
 
   // Shared constants and helpers for battery drawing (used by all themes)
   static constexpr int batteryPercentSpacing = 4;

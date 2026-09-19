@@ -36,10 +36,10 @@ int HomeActivity::getMenuItemCount() const {
 
 void HomeActivity::loadRecentBooks(int maxBooks) {
   recentBooks.clear();
-  recentBookStatuses.clear();
+  recentBookProgress.clear();
   const auto& books = RECENT_BOOKS.getBooks();
   recentBooks.reserve(std::min(static_cast<int>(books.size()), maxBooks));
-  recentBookStatuses.reserve(std::min(static_cast<int>(books.size()), maxBooks));
+  recentBookProgress.reserve(std::min(static_cast<int>(books.size()), maxBooks));
 
   for (const RecentBook& book : books) {
     // Limit to maximum number of recent books
@@ -53,7 +53,7 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
     }
 
     recentBooks.push_back(book);
-    recentBookStatuses.push_back(getReadingStatus(book.path, "/.crosspoint"));
+    recentBookProgress.push_back(getReadingProgress(book.path, "/.crosspoint"));
   }
 }
 
@@ -274,7 +274,7 @@ void HomeActivity::render(RenderLock&&) {
   coverRectW = coverRect.width;
   coverRectH = coverRect.height;
 
-  GUI.drawRecentBookCover(renderer, coverRect, recentBooks, recentBookStatuses, selectorIndex, coverRendered,
+  GUI.drawRecentBookCover(renderer, coverRect, recentBooks, recentBookProgress, selectorIndex, coverRendered,
                           coverBufferStored, bufferRestored, std::bind(&HomeActivity::storeCoverBuffer, this));
 
   GUI.drawButtonMenu(
@@ -313,6 +313,8 @@ void HomeActivity::onAozoraOpen() {
   freeCoverBuffer();
   recentBooks.clear();
   recentBooks.shrink_to_fit();
+  recentBookProgress.clear();
+  recentBookProgress.shrink_to_fit();
 
   startActivityForResult(std::make_unique<AozoraActivity>(renderer, mappedInput), [this](const ActivityResult&) {
     // 戻ってきたら再読み込み（フラグリセットして描画を再トリガー）

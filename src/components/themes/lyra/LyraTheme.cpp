@@ -6,7 +6,9 @@
 #include <HalStorage.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -86,7 +88,9 @@ void drawLyraBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidt
   }
 }
 
-const uint8_t* iconForName(UIIcon icon, int size) {
+}  // namespace
+
+const uint8_t* LyraTheme::iconForName(UIIcon icon, int size) {
   if (size == 24) {
     switch (icon) {
       case UIIcon::Folder:
@@ -132,7 +136,6 @@ const uint8_t* iconForName(UIIcon icon, int size) {
   }
   return nullptr;
 }
-}  // namespace
 
 void LyraTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
   // Left aligned: icon on left, percentage on right (reader mode)
@@ -464,7 +467,7 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 }
 
 void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                    const std::vector<ReadingStatus>& bookStatuses, const int selectorIndex,
+                                    const std::vector<ReadingProgress>& bookProgress, const int selectorIndex,
                                     bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                     std::function<bool()> storeCoverBuffer) const {
   const int tileWidth = rect.width - 2 * LyraMetrics::values.contentSidePadding;
@@ -548,8 +551,9 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     constexpr int readingStatusIconSize = 24;
     constexpr int readingStatusIconTopMargin = 8;
-    const bool hasReadingStatusIcon = !bookStatuses.empty() && (bookStatuses[0] == ReadingStatus::Reading ||
-                                                                bookStatuses[0] == ReadingStatus::Finished);
+    const ReadingStatus status0 = bookProgress.empty() ? ReadingStatus::Unread : bookProgress[0].status;
+    const bool hasReadingStatusIcon = status0 == ReadingStatus::Reading || status0 == ReadingStatus::Finished;
+    const bool hasPercent = !bookProgress.empty() && bookProgress[0].hasPercent();
     const int readingStatusBlockHeight =
         hasReadingStatusIcon ? (readingStatusIconSize + readingStatusIconTopMargin) : 0;
 
@@ -567,8 +571,27 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     }
     if (hasReadingStatusIcon) {
       titleY += readingStatusIconTopMargin;
-      const uint8_t* iconBitmap = (bookStatuses[0] == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
+      const uint8_t* iconBitmap = (status0 == ReadingStatus::Finished) ? BookFinished24Icon : BookReading24Icon;
       renderer.drawIcon(iconBitmap, textX, titleY, readingStatusIconSize, readingStatusIconSize);
+      // アイコンの右に進捗バーと百分率（3 Covers と同じ。読了は満タンのバーだけで数字は省く）
+      if (hasPercent) {
+        const int barX = textX + readingStatusIconSize + 6;
+        const int barRight = tileX + tileWidth - hPaddingInSelection;
+        constexpr int barHeight = 8;
+        char percentText[8];
+        snprintf(percentText, sizeof(percentText), "%d%%", bookProgress[0].percent);
+        const int percentWidth =
+            (status0 == ReadingStatus::Finished) ? 0 : renderer.getTextWidth(SMALL_FONT_ID, percentText) + 6;
+        const int barWidth = std::min(barRight - barX - percentWidth, 200);
+        if (barWidth > 20) {
+          const int barY = titleY + (readingStatusIconSize - barHeight) / 2;
+          drawThinProgressBar(renderer, Rect{barX, barY, barWidth, barHeight}, bookProgress[0].percent, 4);
+          if (percentWidth > 0) {
+            const int textY = titleY + (readingStatusIconSize - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
+            renderer.drawText(SMALL_FONT_ID, barX + barWidth + 6, textY, percentText, true);
+          }
+        }
+      }
     }
   } else {
     drawEmptyRecents(renderer, rect);
@@ -586,11 +609,27 @@ void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) c
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
+  if (buttonCount <= 0) return;
+
+  // 行の高さは既定 menuRowHeight。項目が多くて rect に収まらないとき（X3 縦持ちで
+  // Calibre ライブラリがあると 6 行、3 Covers は表紙列も高い）は行を詰めて全行を収める。
+  // アイコンと文字は行の中央に置くので、詰めても見た目の中心は変わらない
+  int rowHeight = LyraMetrics::values.menuRowHeight;
+  const int spacing = LyraMetrics::values.menuSpacing;
+  if (rect.height > 0) {
+    constexpr int minRowHeight = 40;  // 32px アイコン＋上下 4px
+    const int fitHeight = (rect.height - (buttonCount - 1) * spacing) / buttonCount;
+    rowHeight = std::max(minRowHeight, std::min(rowHeight, fitHeight));
+  }
+
+  // UI text is rendered via CJK UI bitmap font (20px) even for Latin characters.
+  // The glyph's visual center sits (ascender - 6)px below textY, so center that in the tile.
+  const int ascender = renderer.getFontAscenderSize(UI_12_FONT_ID);
+
   for (int i = 0; i < buttonCount; ++i) {
-    int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2;
-    Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding,
-                         rect.y + i * (LyraMetrics::values.menuRowHeight + LyraMetrics::values.menuSpacing), tileWidth,
-                         LyraMetrics::values.menuRowHeight};
+    const int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2;
+    const Rect tileRect{rect.x + LyraMetrics::values.contentSidePadding, rect.y + i * (rowHeight + spacing), tileWidth,
+                        rowHeight};
 
     const bool selected = selectedIndex == i;
 
@@ -601,16 +640,13 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     std::string labelStr = buttonLabel(i);
     const char* label = labelStr.c_str();
     int textX = tileRect.x + 16;
-    // UI text is rendered via CJK UI bitmap font (20px) even for Latin characters.
-    // The glyph's visual center sits (ascender - 6)px below textY, so center that in the tile.
-    const int ascender = renderer.getFontAscenderSize(UI_12_FONT_ID);
-    const int textY = tileRect.y + LyraMetrics::values.menuRowHeight / 2 - ascender + 6;
+    const int textY = tileRect.y + rowHeight / 2 - ascender + 6;
 
     if (rowIcon != nullptr) {
       UIIcon icon = rowIcon(i);
       const uint8_t* iconBitmap = iconForName(icon, mainMenuIconSize);
       if (iconBitmap != nullptr) {
-        const int iconY = tileRect.y + (LyraMetrics::values.menuRowHeight - mainMenuIconSize) / 2;
+        const int iconY = tileRect.y + (rowHeight - mainMenuIconSize) / 2;
         renderer.drawIcon(iconBitmap, textX, iconY, mainMenuIconSize, mainMenuIconSize);
         textX += mainMenuIconSize + hPaddingInSelection + 2;
       }

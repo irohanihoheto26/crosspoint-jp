@@ -12,45 +12,74 @@
 #include <functional>
 #include <string>
 
-ReadingStatus getReadingStatus(const std::string& filepath, const std::string& cacheDir) {
-  // EPUB/XTC以外は常にUnread（アイコン対象外のため到達しないが安全策）
+namespace {
+
+// progress.bin の形式差（docs/file-formats.md 参照）。
+// flagOffset < 0 は読了フラグを持たない形式（TXT）
+struct ProgressLayout {
   const char* prefix;
+  int flagOffset;
+  int percentOffset;
+};
+
+bool layoutFor(const std::string& filepath, ProgressLayout& out) {
   if (FsHelpers::hasEpubExtension(filepath)) {
-    prefix = "epub_";
+    out = ProgressLayout{"epub_", 6, 7};
   } else if (FsHelpers::hasXtcExtension(filepath)) {
-    prefix = "xtc_";
+    out = ProgressLayout{"xtc_", 4, 5};
+  } else if (FsHelpers::hasTxtExtension(filepath) || FsHelpers::hasMarkdownExtension(filepath)) {
+    out = ProgressLayout{"txt_", -1, 4};
   } else {
-    return ReadingStatus::Unread;
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+ReadingProgress getReadingProgress(const std::string& filepath, const std::string& cacheDir) {
+  ReadingProgress result;
+  ProgressLayout layout;
+  if (!layoutFor(filepath, layout)) {
+    return result;
   }
 
   // progress.bin パスを構築
-  std::string progressPath = cacheDir + "/" + prefix + std::to_string(FsHelpers::pathHash(filepath)) + "/progress.bin";
+  std::string progressPath =
+      cacheDir + "/" + layout.prefix + std::to_string(FsHelpers::pathHash(filepath)) + "/progress.bin";
 
   // openFileForRead は exists と open でパス解決を 2 回する。FAT のディレクトリ検索は
   // 線形走査なので、蔵書が数百冊あると 1 冊あたりのコストがそのまま倍になる。
   // 未読の本（progress.bin が無い）は毎回ログも出てしまうため、open だけで判定する。
   FsFile f = Storage.open(progressPath.c_str(), O_RDONLY);
   if (!f) {
-    return ReadingStatus::Unread;
+    return result;
   }
 
-  // ファイル全体を読み取り（最大7バイト: EPUB新フォーマット）
-  uint8_t data[7];
-  int bytesRead = f.read(data, sizeof(data));
+  // ファイル全体を読み取り（最大 8 バイト: EPUB の進捗率付き形式）
+  uint8_t data[8];
+  const int bytesRead = f.read(data, sizeof(data));
   f.close();
 
   if (bytesRead <= 0) {
-    return ReadingStatus::Unread;
+    return result;
   }
 
-  // 読了フラグの位置: EPUB=byte6, XTC=byte4
-  int flagOffset = FsHelpers::hasEpubExtension(filepath) ? 6 : 4;
-
-  if (bytesRead > flagOffset && data[flagOffset] == 1) {
-    return ReadingStatus::Finished;
+  result.status = ReadingStatus::Reading;
+  if (layout.flagOffset >= 0 && bytesRead > layout.flagOffset && data[layout.flagOffset] == 1) {
+    result.status = ReadingStatus::Finished;
   }
+  if (bytesRead > layout.percentOffset && data[layout.percentOffset] <= 100) {
+    result.percent = data[layout.percentOffset];
+  } else if (result.status == ReadingStatus::Finished) {
+    // 進捗率フィールドが無い旧ファイルでも、読了なら 100% と分かる
+    result.percent = 100;
+  }
+  return result;
+}
 
-  return ReadingStatus::Reading;
+ReadingStatus getReadingStatus(const std::string& filepath, const std::string& cacheDir) {
+  return getReadingProgress(filepath, cacheDir).status;
 }
 
 namespace {
@@ -188,18 +217,20 @@ bool markAsFinished(const std::string& filepath, const std::string& cacheDir) {
   const std::string bookDir = cacheDir + "/" + prefix + hash;
   const std::string progressPath = bookDir + "/progress.bin";
 
-  // EPUB=7, XTC=5
-  const size_t recordSize = isEpub ? 7 : 5;
+  // 進捗率付き形式で書く: EPUB=8, XTC=6（docs/file-formats.md）
+  const size_t recordSize = isEpub ? 8 : 6;
   const size_t flagOffset = isEpub ? 6 : 4;
+  const size_t percentOffset = isEpub ? 7 : 5;
 
   // 既存progress.binを読み込んで読書位置を保持する（なければゼロ初期化）
-  uint8_t data[7] = {0};
+  uint8_t data[8] = {0};
   FsFile rf;
   if (Storage.openFileForRead("RSH", progressPath, rf)) {
     rf.read(data, recordSize);
     rf.close();
   }
   data[flagOffset] = 1;
+  data[percentOffset] = 100;
 
   // ディレクトリを確保してから書き込む
   Storage.mkdir(cacheDir.c_str());
