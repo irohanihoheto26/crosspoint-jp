@@ -97,8 +97,18 @@ void OpdsBookBrowserActivity::loop() {
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       navigateBack();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      if (!searchTemplate.empty() && selectorIndex == 0) launchSearch();
-    }
+            if (!searchTemplate.empty() && selectorIndex == 0) launchSearch();
+        } else if (mappedInput.wasReleased(MappedInputManager::Button::SideDown)) {
+            if (!entries.empty()) {
+                selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, entries.size(), getPageItems());
+                requestUpdate();
+            }
+        } else if (mappedInput.wasReleased(MappedInputManager::Button::SideUp)) {
+            if (!entries.empty()) {
+                selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, entries.size(), getPageItems());
+                requestUpdate();
+            }
+        }
 
     if (!entries.empty()) {
       buttonNavigator.onNextRelease([this] {
