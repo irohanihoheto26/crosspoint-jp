@@ -400,4 +400,3 @@ void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
     requestUpdate();
   }
 }
-

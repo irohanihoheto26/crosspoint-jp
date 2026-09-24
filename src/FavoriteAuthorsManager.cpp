@@ -7,10 +7,6 @@
 #include <algorithm>
 #include <cstring>
 
-FavoriteAuthorsManager::FavoriteAuthorsManager() {
-  load();
-}
-
 bool FavoriteAuthorsManager::load() {
   entries_.clear();
 
@@ -56,8 +52,6 @@ bool FavoriteAuthorsManager::save() const {
     obj["kana"] = e.kana;
   }
 
-  Storage.ensureParentDir(FAVORITES_PATH);
-
   FsFile file;
   if (!Storage.openFileForWrite("FAVAUTH", FAVORITES_PATH, file)) {
     LOG_ERR("FAVAUTH", "Failed to open favorites for write");
@@ -70,6 +64,9 @@ bool FavoriteAuthorsManager::save() const {
 }
 
 void FavoriteAuthorsManager::addAuthor(int id, const char* name, const char* kana) {
+  if (entries_.empty()) {
+    load();
+  }
   if (isFavorited(id)) return;
 
   FavoriteAuthor entry;
@@ -82,6 +79,9 @@ void FavoriteAuthorsManager::addAuthor(int id, const char* name, const char* kan
 }
 
 void FavoriteAuthorsManager::removeAuthor(int id) {
+  if (entries_.empty()) {
+    load();
+  }
   for (auto it = entries_.begin(); it != entries_.end(); ++it) {
     if (it->authorId == id) {
       entries_.erase(it);
