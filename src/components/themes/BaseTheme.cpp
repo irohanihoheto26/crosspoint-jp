@@ -127,12 +127,21 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     // Right aligned text for progress counter
     char progressStr[32];
 
-    if (SETTINGS.statusBarBookProgressPercentage && SETTINGS.statusBarChapterPageCount) {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d  %.0f%%", currentPage, pageCount, bookProgress);
-    } else if (SETTINGS.statusBarBookProgressPercentage) {
-      snprintf(progressStr, sizeof(progressStr), "%.0f%%", bookProgress);
+    // RTCから時刻を取得 (例: 14:38)
+    char timeBuf[8];
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
     } else {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d", currentPage, pageCount);
+        snprintf(timeBuf, sizeof(timeBuf), "--:--");
+    }
+
+    if (SETTINGS.statusBarBookProgressPercentage && SETTINGS.statusBarChapterPageCount) {
+        snprintf(progressStr, sizeof(progressStr), "%s %.0f%%", timeBuf, bookProgress);
+    } else if (SETTINGS.statusBarBookProgressPercentage) {
+        snprintf(progressStr, sizeof(progressStr), "%.0f%%", bookProgress);
+    } else {
+        snprintf(progressStr, sizeof(progressStr), "%s", timeBuf);
     }
 
     progressTextWidth = renderer.getTextWidth(SMALL_FONT_ID, progressStr);
