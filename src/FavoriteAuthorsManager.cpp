@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <cstring>
 
+FavoriteAuthorsManager::FavoriteAuthorsManager() {
+  load();
+}
+
 bool FavoriteAuthorsManager::load() {
   entries_.clear();
 
@@ -51,6 +55,8 @@ bool FavoriteAuthorsManager::save() const {
     obj["name"] = e.name;
     obj["kana"] = e.kana;
   }
+
+  Storage.ensureParentDir(FAVORITES_PATH);
 
   FsFile file;
   if (!Storage.openFileForWrite("FAVAUTH", FAVORITES_PATH, file)) {
