@@ -10,11 +10,14 @@
 // first desk render of a day) — never per page turn.
 namespace desk_stats {
 
-constexpr int MAX_LOOKUPS = 4;
-constexpr size_t MAX_WORD_BYTES = 48;
+// History kept on SD; the home box shows the newest SHOWN_LOOKUPS and the
+// word of the day reviews one of the older ones.
+constexpr int MAX_LOOKUPS = 10;
+constexpr int SHOWN_LOOKUPS = 4;
+constexpr size_t MAX_WORD_BYTES = 40;
 
 struct Lookups {
-  char words[MAX_LOOKUPS][MAX_WORD_BYTES] = {};
+  char words[SHOWN_LOOKUPS][MAX_WORD_BYTES] = {};
   int count = 0;
 };
 
@@ -27,11 +30,13 @@ uint32_t readDaysMask(int year, int month);
 
 // Records a looked-up headword (newest first, deduplicated, MAX_LOOKUPS kept).
 void addLookup(const char* word);
+// Newest SHOWN_LOOKUPS entries.
 void loadLookups(Lookups& out);
 
-// Word of the day for `yyyymmdd` from the dictionary folder `dictName`.
-// Picks once per day and caches the word plus a one-line meaning; later calls
-// that day just read the cache. False when no dictionary is usable.
+// Word of the day for `yyyymmdd`: one of the older lookups (the ones not shown
+// in the recent box), else a random headword of `dictName`. Picks once per day
+// and caches the word plus a one-line meaning; later calls that day just read
+// the cache. False when there is nothing to show.
 bool wordOfDay(uint32_t yyyymmdd, const char* dictName, std::string& word, std::string& meaning);
 
 }  // namespace desk_stats

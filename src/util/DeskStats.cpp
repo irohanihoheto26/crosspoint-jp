@@ -18,11 +18,11 @@ namespace {
 
 constexpr char DAYS_PATH[] = "/.crosspoint/desk_days.txt";
 constexpr char LOOKUPS_PATH[] = "/.crosspoint/desk_words.txt";
-constexpr char WOTD_PATH[] = "/.crosspoint/desk_wotd2.txt";
+constexpr char WOTD_PATH[] = "/.crosspoint/desk_wotd3.txt";
 // A few years of "YYYYMM HHHHHHHH\n" lines; older months are dropped on write.
 constexpr int MAX_DAY_LINES = 36;
 constexpr size_t DAYS_BUF = MAX_DAY_LINES * 16 + 1;
-constexpr size_t LOOKUPS_BUF = MAX_LOOKUPS * MAX_WORD_BYTES + 8;
+constexpr size_t LOOKUPS_CAP = MAX_LOOKUPS * MAX_WORD_BYTES + 16;
 constexpr size_t MEANING_MAX_BYTES = 90;
 
 struct DayLine {
@@ -134,23 +134,45 @@ uint32_t readDaysMask(const int year, const int month) {
   return 0;
 }
 
+namespace {
+
+// Reads the history file (at most MAX_LOOKUPS lines, ~400 bytes) into a
+// transient heap string; avoids a large stack buffer on the render task.
+bool readLookupFile(std::string& text) { return Storage.readFileToString("DESK", LOOKUPS_PATH, LOOKUPS_CAP, text); }
+
+// Copies line `index` of `text` into buf. False when there is no such line.
+bool lineAt(const std::string& text, int index, char* buf, size_t size) {
+  size_t pos = 0;
+  for (int i = 0; i < index; ++i) {
+    pos = text.find('\n', pos);
+    if (pos == std::string::npos) return false;
+    ++pos;
+  }
+  if (pos >= text.size()) return false;
+  size_t end = text.find('\n', pos);
+  if (end == std::string::npos) end = text.size();
+  size_t len = end - pos;
+  if (len == 0) return false;
+  if (len >= size) len = size - 1;
+  memcpy(buf, text.data() + pos, len);
+  buf[len] = '\0';
+  return true;
+}
+
+int lineCount(const std::string& text) {
+  int n = 0;
+  char tmp[MAX_WORD_BYTES];
+  while (n < MAX_LOOKUPS && lineAt(text, n, tmp, sizeof(tmp))) ++n;
+  return n;
+}
+
+}  // namespace
+
 void loadLookups(Lookups& out) {
   out.count = 0;
-  char buf[LOOKUPS_BUF] = {};
-  if (Storage.readFileToBuffer(LOOKUPS_PATH, buf, sizeof(buf)) == 0) return;
-  const char* p = buf;
-  while (*p && out.count < MAX_LOOKUPS) {
-    const char* nl = strchr(p, '\n');
-    const size_t len = nl ? static_cast<size_t>(nl - p) : strlen(p);
-    if (len > 0) {
-      const size_t n = len < MAX_WORD_BYTES - 1 ? len : MAX_WORD_BYTES - 1;
-      memcpy(out.words[out.count], p, n);
-      out.words[out.count][n] = '\0';
-      ++out.count;
-    }
-    if (!nl) break;
-    p = nl + 1;
-  }
+  std::string text;
+  if (!readLookupFile(text)) return;
+  while (out.count < SHOWN_LOOKUPS && lineAt(text, out.count, out.words[out.count], MAX_WORD_BYTES)) ++out.count;
 }
 
 void addLookup(const char* word) {
@@ -166,15 +188,16 @@ void addLookup(const char* word) {
   if (n > 0 && (static_cast<uint8_t>(clean[n - 1]) & 0x80)) clean[--n] = '\0';
   if (n == 0) return;
 
-  Lookups old;
-  loadLookups(old);
-  if (old.count > 0 && strcmp(old.words[0], clean) == 0) return;  // unchanged: no SD write
+  std::string old;
+  readLookupFile(old);
+  char line[MAX_WORD_BYTES];
+  if (lineAt(old, 0, line, sizeof(line)) && strcmp(line, clean) == 0) return;  // unchanged: no SD write
   String out = clean;
   out += '\n';
   int written = 1;
-  for (int i = 0; i < old.count && written < MAX_LOOKUPS; ++i) {
-    if (strcmp(old.words[i], clean) == 0) continue;
-    out += old.words[i];
+  for (int i = 0; written < MAX_LOOKUPS && lineAt(old, i, line, sizeof(line)); ++i) {
+    if (strcmp(line, clean) == 0) continue;
+    out += line;
     out += '\n';
     ++written;
   }
@@ -184,7 +207,7 @@ void addLookup(const char* word) {
 bool wordOfDay(const uint32_t yyyymmdd, const char* dictName, std::string& word, std::string& meaning) {
   word.clear();
   meaning.clear();
-  if (!dictName || !*dictName) return false;
+  if (!dictName) dictName = "";
 
   // Cache line: "<yyyymmdd>\t<dict>\t<word>\t<meaning>"
   std::string cache;
@@ -204,18 +227,38 @@ bool wordOfDay(const uint32_t yyyymmdd, const char* dictName, std::string& word,
     }
   }
 
-  // Not cached for today: pick one now. Heap-held: Dictionary carries a 256-byte
-  // word buffer and the lookup output can be several KB.
+  // Not cached for today: pick one now. Prefer reviewing an older lookup.
+  {
+    std::string history;
+    readLookupFile(history);
+    const int count = lineCount(history);
+    if (count > 0) {
+      const int first = count > SHOWN_LOOKUPS ? SHOWN_LOOKUPS : 0;
+      char pick[MAX_WORD_BYTES];
+      if (lineAt(history, first + static_cast<int>(yyyymmdd % static_cast<uint32_t>(count - first)), pick,
+                 sizeof(pick))) {
+        word = pick;
+      }
+    }
+  }
+  // Heap-held: Dictionary carries a 256-byte word buffer, and the definition
+  // (freed right after the first line is taken) can be several KB.
   auto dict = std::unique_ptr<Dictionary>(new (std::nothrow) Dictionary());
-  if (!dict || !dict->open(dictName) || dict->needsIndex()) return false;
+  const bool dictOk = dict && dict->open(dictName) && !dict->needsIndex();
   std::string definition;
   std::string headword;
-  for (uint32_t attempt = 0; attempt < 6; ++attempt) {
-    if (!dict->sampleHeadword(yyyymmdd * 2654435761u + attempt * 40503u, word)) return false;
-    if (dict->lookup(word.c_str(), definition, headword)) break;
-    word.clear();
+  if (word.empty()) {
+    if (!dictOk) return false;
+    for (uint32_t attempt = 0; attempt < 6; ++attempt) {
+      if (!dict->sampleHeadword(yyyymmdd * 2654435761u + attempt * 40503u, word)) return false;
+      if (dict->lookup(word.c_str(), definition, headword)) break;
+      word.clear();
+    }
+    if (word.empty()) return false;
+  } else if (dictOk && !dict->lookup(word.c_str(), definition, headword)) {
+    definition.clear();
   }
-  if (word.empty()) return false;
+  dict.reset();
   firstPlainLine(definition, meaning, MEANING_MAX_BYTES);
   std::string().swap(definition);
 
