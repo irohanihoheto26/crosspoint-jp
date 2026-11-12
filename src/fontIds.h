@@ -8,6 +8,10 @@
 #define UI_10_FONT_ID (1322569422)
 #define UI_12_FONT_ID (1831230762)
 #define SMALL_FONT_ID (-1769521860)
+// Desk home (DotGothic16 subsets, see lib/EpdFont/scripts/build-desk-fonts.sh)
+#define DESK_CLOCK_FONT_ID (1145130307)
+#define DESK_TEXT_FONT_ID (1145130324)
+#define DESK_DATE_FONT_ID (1145130308)
 
 // Font ID 0 is reserved as the "not found" sentinel.
 // Guard against any hash accidentally producing 0.

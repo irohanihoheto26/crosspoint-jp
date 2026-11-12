@@ -1,5 +1,7 @@
 #include "DictionaryDefinitionActivity.h"
 
+#include "util/DeskStats.h"
+
 #include <BidiUtils.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
@@ -422,6 +424,7 @@ void DictionaryDefinitionActivity::navigateDefinition(const bool back) {
     }
     return;
   }
+  if (!back) desk_stats::addLookup(next.headword.c_str());
   const bool forcePlain = back && !lookup->history[lookup->depth - 1].styled;
   if (!prepareDefinition(next, forcePlain)) {
     recover(StrId::STR_DICT_LOW_MEMORY);

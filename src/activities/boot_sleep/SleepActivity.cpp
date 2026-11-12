@@ -837,6 +837,16 @@ void SleepActivity::renderDefaultSleepScreen() const {
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {
+  // "Slightly darker": keep grayscale but pull both gray levels one step darker.
+  static constexpr uint8_t DARKER_GRAY_REMAP[4] = {0, 0, 1, 3};
+  struct GrayRemapScope {
+    GfxRenderer& r;
+    explicit GrayRemapScope(GfxRenderer& renderer, const bool on) : r(renderer) {
+      r.setBitmapGrayRemap(on ? DARKER_GRAY_REMAP : nullptr);
+    }
+    ~GrayRemapScope() { r.setBitmapGrayRemap(nullptr); }
+  } remapScope(renderer, !preserveBackground && SETTINGS.sleepScreenCoverFilter ==
+                                                   CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::DARKER_GRAY);
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   const auto placement = calculateBitmapPlacement(bitmap.getWidth(), bitmap.getHeight(), renderer);
@@ -850,8 +860,9 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
   if (!preserveBackground) renderer.clearScreen();
 
   const bool hasGreyscale = (bitmap.hasGreyscale() || (preserveBackground && overlayGrayCover)) &&
-                            (preserveBackground || SETTINGS.sleepScreenCoverFilter ==
-                                                       CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
+                            (preserveBackground ||
+                             SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER ||
+                             SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::DARKER_GRAY);
 
   if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY, preserveBackground)) {
     renderer.displayBuffer(kSleepClean);

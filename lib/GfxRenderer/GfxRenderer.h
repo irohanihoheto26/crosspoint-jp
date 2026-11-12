@@ -45,6 +45,7 @@ class GfxRenderer {
   };
 
  private:
+  const uint8_t* bitmapGrayRemap = nullptr;
   static constexpr size_t BW_BUFFER_CHUNK_SIZE = 8000;  // 8KB chunks to allow for non-contiguous memory
 
   HalDisplay& display;
@@ -227,6 +228,9 @@ class GfxRenderer {
 
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
+  // Optional 4-entry table applied to 2-bit bitmap pixels in drawBitmap
+  // (e.g. a darker sleep cover). nullptr = identity.
+  void setBitmapGrayRemap(const uint8_t* table) { bitmapGrayRemap = table; }
 
   // Screen ops
   int getScreenWidth() const;

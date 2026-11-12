@@ -21,3 +21,6 @@
 #include <builtinFonts/ubuntu_12_bold.h>
 #include <builtinFonts/ubuntu_12_regular.h>
 #include <builtinFonts/ubuntu_8_regular.h>
+#include <builtinFonts/deskclock_56.h>
+#include <builtinFonts/desktext_11.h>
+#include <builtinFonts/desktext_15.h>

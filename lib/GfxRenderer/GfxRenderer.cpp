@@ -1508,7 +1508,8 @@ bool GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
         continue;
       }
 
-      const uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
+      uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
+      if (bitmapGrayRemap) val = bitmapGrayRemap[val];
       if (whiteAsTransparent && val == 3) continue;
 
       if (renderMode == BW && val < 3) {
@@ -1582,7 +1583,8 @@ bool GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
       }
 
       // Get 2-bit value (result of readNextRow quantization)
-      const uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
+      uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
+      if (bitmapGrayRemap) val = bitmapGrayRemap[val];
 
       // For 1-bit source: 0 or 1 -> map to black (0,1,2) or white (3)
       // val < 3 means black pixel (draw it)

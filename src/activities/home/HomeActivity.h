@@ -17,6 +17,7 @@ class HomeActivity final : public Activity {
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool firstRenderDone = false;
+  bool deskMode = false;  // Desk home layout (SETTINGS.deskHome)
   bool hasOpdsServers = false;
   bool hasPlugins = false;
   // The home "library" slot (index 2) shows Plugins when any plugin is
@@ -76,6 +77,8 @@ class HomeActivity final : public Activity {
   bool restoreCoverBuffer();  // Restore frame buffer from stored cover
   void freeCoverBuffer();     // Free the stored cover buffer
   void loadRecentBooks(int maxBooks);
+  void deskLoop();
+  void renderDesk();
   void loadRecentCovers(int coverHeight);
   void fillCoverGridFromLibrary();
   void resolveGridCoverPaths();

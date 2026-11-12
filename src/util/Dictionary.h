@@ -140,6 +140,10 @@ class Dictionary {
 
   static std::string cleanWord(const char* word);
 
+  // A pseudo-random plain lowercase headword chosen from the .qidx samples
+  // (Desk home "word of the day"). Needs a built index; false otherwise.
+  bool sampleHeadword(uint32_t seed, std::string& out);
+
   static constexpr uint32_t MAX_DEFINITION_BYTES = 64 * 1024;
 
  private:

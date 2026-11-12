@@ -475,6 +475,31 @@ bool Dictionary::openSession(LookupSession& session) {
   return true;
 }
 
+bool Dictionary::sampleHeadword(const uint32_t seed, std::string& out) {
+  LookupSession session;
+  if (!openSession(session) || session.sampleCount == 0) return false;
+  for (uint32_t attempt = 0; attempt < 16; ++attempt) {
+    const uint32_t sample = (seed + attempt * 2654435761u) % session.sampleCount;
+    uint32_t offset = 0;
+    if (!readSampleOffset(session.qidx, sample, &offset) || !session.idx.seekSet(offset)) return false;
+    // A sample can land inside a run of capitalized or multi-word entries;
+    // read a few following words and take the first plain one.
+    for (int step = 0; step < 32; ++step) {
+      const int len = readWordInto(session.idx, wordBuf, sizeof(wordBuf));
+      if (len <= 0) break;
+      uint32_t locationBytes[2];
+      if (session.idx.read(locationBytes, sizeof(locationBytes)) != static_cast<int>(sizeof(locationBytes))) break;
+      bool plain = len >= 4 && len <= 16;
+      for (int i = 0; plain && i < len; ++i) plain = wordBuf[i] >= 'a' && wordBuf[i] <= 'z';
+      if (plain) {
+        out.assign(wordBuf, static_cast<size_t>(len));
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool Dictionary::openSynonyms(LookupSession& session) {
   if (session.synOpened) return session.synSize > 0;
   session.synOpened = true;

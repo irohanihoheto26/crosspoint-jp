@@ -37,7 +37,7 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   emit(SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
                          {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY));
   emit(SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
-                         {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
+                         {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED, StrId::STR_FILTER_MEDIUM},
                          "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY));
   emit(SettingInfo::Enum(StrId::STR_QUICK_RESUME_TIMEOUT, &CrossPointSettings::quickResumeSleepScreen,
                          {StrId::STR_STATE_OFF, StrId::STR_STATE_ON}, "quickResumeSleepScreen",
@@ -51,6 +51,7 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
                          "refreshFrequency", StrId::STR_CAT_DISPLAY));
   emit(SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme, homeThemeValues(), "uiTheme",
                          StrId::STR_CAT_DISPLAY));
+  emit(SettingInfo::Toggle(StrId::STR_DESK_HOME, &CrossPointSettings::deskHome, "deskHome", StrId::STR_CAT_DISPLAY));
   if (!BoardConfig::hasTouch())
     emit(SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
                              StrId::STR_CAT_DISPLAY));

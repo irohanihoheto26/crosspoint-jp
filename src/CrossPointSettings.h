@@ -34,6 +34,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     NO_FILTER = 0,
     BLACK_AND_WHITE = 1,
     INVERTED_BLACK_AND_WHITE = 2,
+    // Grayscale with the two gray levels pulled one step darker.
+    DARKER_GRAY = 3,
     SLEEP_SCREEN_COVER_FILTER_COUNT
   };
   enum STATUS_BAR_PROGRESS_BAR {
@@ -355,6 +357,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t uiTheme = LYRA;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
+  // Desk home screen (clock, covers, calendar, words) instead of the theme home.
+  uint8_t deskHome = 1;
   // Power button return from footnotes (1 = enabled, 0 = disabled)
   uint8_t pwrBtnFootnoteBack = 1;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)

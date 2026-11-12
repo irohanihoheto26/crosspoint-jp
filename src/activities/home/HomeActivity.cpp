@@ -23,7 +23,13 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "components/DeskHome.h"
 #include "components/UITheme.h"
+#include "components/icons/blocks.h"
+#include "components/icons/folder.h"
+#include "components/icons/library.h"
+#include "components/icons/settings2.h"
+#include "components/icons/transfer.h"
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
@@ -236,12 +242,15 @@ void HomeActivity::onEnter() {
   hasPlugins = SETTINGS.pluginsEnabled != 0;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  if (UITheme::getInstance().hasCoverGridHome()) {
+  deskMode = SETTINGS.deskHome != 0;
+  if (!deskMode && UITheme::getInstance().hasCoverGridHome()) {
     // Screen-lifetime interaction tables and component properties exceed the stack budget.
     coverGridUi = makeUniqueNoThrow<CoverGridHomeUi>(renderer);
     if (!coverGridUi) LOG_ERR("HOME", "OOM: cover grid UI; using standard home");
   }
-  loadRecentBooks(coverGridUi ? CoverGridHomeUi::MAX_BOOKS : metrics.homeRecentBooksCount);
+  loadRecentBooks(deskMode      ? desk_home::MAX_BOOKS
+                  : coverGridUi ? CoverGridHomeUi::MAX_BOOKS
+                                : metrics.homeRecentBooksCount);
   hasContinueReading = !recentBooks.empty();
   if (coverGridUi) {
     fillCoverGridFromLibrary();
@@ -302,6 +311,10 @@ void HomeActivity::freeCoverBuffer() {
 }
 
 void HomeActivity::loop() {
+  if (deskMode) {
+    deskLoop();
+    return;
+  }
   const int menuCount = getMenuItemCount();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
@@ -472,6 +485,10 @@ void HomeActivity::render(RenderLock&&) {
   const Rect content = UITheme::getInstance().getContentArea(renderer);
 
   renderer.clearScreen();
+  if (deskMode) {
+    renderDesk();
+    return;
+  }
   if (coverGridUi) {
     coverGridUi->setSelection(selectorIndex);
     UITheme::getInstance().drawCoverGridHome(*coverGridUi);
@@ -562,6 +579,89 @@ void HomeActivity::render(RenderLock&&) {
     recentsLoading = true;
     const int themeThumbHeight = GUI.homeCoverThumbHeight(renderer);
     loadRecentCovers(themeThumbHeight > 0 ? themeThumbHeight : metrics.homeCoverHeight);
+  }
+}
+
+// Desk home: covers row (indices 0..books-1) and the top icon row (books..).
+// Left/Right move within the current row, Up/Down switch rows.
+void HomeActivity::deskLoop() {
+  const int bookCount = static_cast<int>(recentBooks.size());
+  const int iconCount = getMenuItemCount() - bookCount;
+  const bool inIcons = selectorIndex >= bookCount;
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (selectorIndex < bookCount) {
+      onRecentBookSelected(recentBooks[selectorIndex].path);
+      return;
+    }
+    switch (indexToMenuItem(selectorIndex - bookCount, hasLibrarySlot())) {
+      case HomeMenuItem::FILE_BROWSER:
+        onFileBrowserOpen();
+        break;
+      case HomeMenuItem::LIBRARY:
+        onLibraryOpen();
+        break;
+      case HomeMenuItem::OPDS_BROWSER:
+        hasPlugins ? onPluginsOpen() : onOpdsBrowserOpen();
+        break;
+      case HomeMenuItem::FILE_TRANSFER:
+        onFileTransferOpen();
+        break;
+      case HomeMenuItem::SETTINGS_MENU:
+        onSettingsOpen();
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) && bookCount > 0) {
+    onRecentBookSelected(recentBooks[0].path);
+    return;
+  }
+
+  const auto moveInRow = [this, bookCount, iconCount, inIcons](const int dir) {
+    const int base = inIcons ? bookCount : 0;
+    const int count = inIcons ? iconCount : bookCount;
+    if (count <= 0) return;
+    selectorIndex = base + (selectorIndex - base + count + dir) % count;
+    requestUpdate();
+  };
+  const auto switchRow = [this, bookCount, iconCount, inIcons] {
+    if (inIcons) {
+      if (bookCount == 0) return;
+      selectorIndex = std::min(selectorIndex - bookCount, bookCount - 1);
+    } else {
+      if (iconCount <= 0) return;
+      selectorIndex = bookCount + std::min(selectorIndex, iconCount - 1);
+    }
+    requestUpdate();
+  };
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [&moveInRow] { moveInRow(-1); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [&moveInRow] { moveInRow(+1); });
+  buttonNavigator.onPress({MappedInputManager::Button::Up}, [&switchRow] { switchRow(); });
+  buttonNavigator.onPress({MappedInputManager::Button::Down}, [&switchRow] { switchRow(); });
+}
+
+void HomeActivity::renderDesk() {
+  // Same order as indexToMenuItem().
+  const uint8_t* icons[5];
+  int iconCount = 0;
+  icons[iconCount++] = FolderIcon;
+  icons[iconCount++] = LibraryIcon;
+  if (hasLibrarySlot()) icons[iconCount++] = BlocksIcon;
+  icons[iconCount++] = TransferIcon;
+  icons[iconCount++] = Settings2Icon;
+  desk_home::draw(renderer, recentBooks, selectorIndex, icons, iconCount);
+  renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+
+  if (!firstRenderDone) {
+    firstRenderDone = true;
+    requestUpdate();
+  } else if (!recentsLoaded && !recentsLoading) {
+    // Generates any missing thumbnails at the desk cover size, then redraws.
+    loadRecentCovers(desk_home::coverHeight(renderer));
+    requestUpdate();
   }
 }
 

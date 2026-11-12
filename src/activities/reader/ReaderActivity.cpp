@@ -1,5 +1,7 @@
 #include "ReaderActivity.h"
 
+#include "util/DeskStats.h"
+
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
@@ -56,6 +58,7 @@ void ReaderActivity::notePageTurn(const bool forward, const bool succeeded) {
 
 void ReaderActivity::onEnter() {
   Activity::onEnter();
+  desk_stats::markReadToday();
 
   // Heap ledger for field crash reports: free vs largest block distinguishes a
   // leak (free falls) from fragmentation (free stable, largest collapses).

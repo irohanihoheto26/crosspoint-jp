@@ -12,6 +12,7 @@
 // clang-format on
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -19,7 +20,7 @@
 #include "FirmwareFlasher.h"
 
 namespace {
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/crosspoint-reader/crosspoint-reader/releases/latest";
+constexpr char latestReleaseUrl[] = "https://api.github.com/repos/irohanihoheto26/crosspoint-jp/releases/latest";
 }  // namespace
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
@@ -123,6 +124,15 @@ bool OtaUpdater::isUpdateNewer() const {
    * Check patch versions.
    */
   if (latestPatch != currentPatch) return latestPatch > currentPatch;
+
+  // Haru builds append "-hN" to the upstream version; a higher N is newer.
+  const auto haruBuild = [](const char* version) {
+    const char* tag = strstr(version, "-h");
+    return tag ? atoi(tag + 2) : 0;
+  };
+  const int latestBuild = haruBuild(latestVersion.c_str());
+  const int currentBuild = haruBuild(currentVersion);
+  if (latestBuild != currentBuild) return latestBuild > currentBuild;
 
   // If we reach here, it means all segments are equal.
   // One final check, if we're on an RC build (contains "-rc"), we should consider the latest version as newer even if

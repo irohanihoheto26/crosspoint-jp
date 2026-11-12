@@ -1,5 +1,7 @@
 #include "DictionaryWordSelectActivity.h"
 
+#include "util/DeskStats.h"
+
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <Memory.h>
@@ -60,6 +62,7 @@ void DictionaryWordSelectActivity::performLookup() {
   const bool found = ok && dict.lookup(lookupText.c_str(), definition, headword, &result);
 
   if (found) {
+    desk_stats::addLookup(headword.c_str());
     {
       RenderLock lock;
       popup = Popup::None;

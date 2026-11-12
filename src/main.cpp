@@ -120,6 +120,13 @@ EpdFont ui12RegularFont(&ubuntu_12_regular);
 EpdFont ui12BoldFont(&ubuntu_12_bold);
 EpdFontFamily ui12FontFamily(12, &ui12RegularFont, &ui12BoldFont);
 
+EpdFont deskClockFont(&deskclock_56);
+EpdFontFamily deskClockFontFamily(56, &deskClockFont);
+EpdFont deskTextFont(&desktext_11);
+EpdFontFamily deskTextFontFamily(11, &deskTextFont);
+EpdFont deskDateFont(&desktext_15);
+EpdFontFamily deskDateFontFamily(15, &deskDateFont);
+
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
 RTC_NOINIT_ATTR uint32_t silentRebootTarget;
@@ -556,6 +563,9 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  renderer.insertFont(DESK_CLOCK_FONT_ID, deskClockFontFamily);
+  renderer.insertFont(DESK_TEXT_FONT_ID, deskTextFontFamily);
+  renderer.insertFont(DESK_DATE_FONT_ID, deskDateFontFamily);
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);
