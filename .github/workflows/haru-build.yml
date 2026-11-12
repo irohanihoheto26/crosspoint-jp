@@ -16,6 +16,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Patch SDK HTTP header limits (GitHub CSP header > 4 KB)
+        run: bash scripts/patch_securenet_headers.sh
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
