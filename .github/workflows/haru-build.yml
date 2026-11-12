@@ -3,7 +3,6 @@ name: Haru X3 build
 on:
   push:
     branches: ['haru/**']
-    tags: ['*-h*']
   workflow_dispatch:
 
 permissions:
@@ -76,17 +75,19 @@ jobs:
           path: out/
           if-no-files-found: error
 
-      - name: Publish release (tags only)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish release for a new version (haru/main only)
+        if: github.ref == 'refs/heads/haru/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
           VER=$(grep -E '^version = ' platformio.ini | head -1 | sed 's/version = //')
-          if [ "$TAG" != "$VER" ]; then echo "tag $TAG != platformio version $VER"; exit 1; fi
-          cp out/firmware.bin "crosspoint-${TAG}-x3-x4.bin"
-          cp out/firmware-full-16MB.bin "crosspoint-${TAG}-x3-x4-full-16MB.bin"
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" \
-            --notes "X3 Japanese build ${TAG} (CrossPoint 2.0.0 base)." \
-            "crosspoint-${TAG}-x3-x4.bin" "crosspoint-${TAG}-x3-x4-full-16MB.bin"
+          if gh release view "$VER" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $VER already exists; bump [crosspoint] version to publish."
+            exit 0
+          fi
+          cp out/firmware.bin "crosspoint-${VER}-x3-x4.bin"
+          cp out/firmware-full-16MB.bin "crosspoint-${VER}-x3-x4-full-16MB.bin"
+          gh release create "$VER" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$VER" \
+            --notes "X3 Japanese build ${VER} (CrossPoint 2.0.0 base)." \
+            "crosspoint-${VER}-x3-x4.bin" "crosspoint-${VER}-x3-x4-full-16MB.bin"
