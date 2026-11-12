@@ -29,8 +29,8 @@ constexpr int TOP = 10;
 constexpr int ICON = 32;
 constexpr int ICON_BOX = 44;
 constexpr int ICON_GAP = 8;
-constexpr int CLOCK_GAP_ABOVE = 30;
-constexpr int CLOCK_GAP_BELOW = 26;
+constexpr int CLOCK_GAP_ABOVE = 12;
+constexpr int CLOCK_GAP_BELOW = 16;
 constexpr int COVER_GAP = 12;
 constexpr int WIDGET_GAP = 8;
 constexpr int BOTTOM = 10;
@@ -50,20 +50,27 @@ struct Layout {
   int dateTop = 0;
 };
 
-int textLine(const GfxRenderer& r) { return r.getLineHeight(DESK_TEXT_FONT_ID); }
+// DotGothic16 carries a tall line gap; rows use the ascender plus a little room
+// for the kanji descent instead of the full line height.
+int textLine(const GfxRenderer& r) { return r.getFontAscenderSize(DESK_TEXT_FONT_ID) + 3; }
+int dateLine(const GfxRenderer& r) { return r.getFontAscenderSize(DESK_DATE_FONT_ID) + 4; }
+// The clock digits sit in the lower ~70% of the font's ascender.
+int clockSkip(const GfxRenderer& r) { return r.getFontAscenderSize(DESK_CLOCK_FONT_ID) * 30 / 100; }
+int clockHeight(const GfxRenderer& r) { return r.getFontAscenderSize(DESK_CLOCK_FONT_ID) * 72 / 100; }
 
 // Calendar: title + weekday row + 6 week rows.
-int calendarHeight(const GfxRenderer& r) { return BOX_PAD * 2 + textLine(r) + 7 * (textLine(r) + 3); }
+int calRow(const GfxRenderer& r) { return r.getFontAscenderSize(DESK_TEXT_FONT_ID); }
+int calendarHeight(const GfxRenderer& r) { return BOX_PAD * 2 + textLine(r) + 7 * calRow(r); }
 // Recent lookups: title + two rows of words.
-int wordsHeight(const GfxRenderer& r) { return BOX_PAD * 2 + textLine(r) * 3 + 4; }
+int wordsHeight(const GfxRenderer& r) { return BOX_PAD * 2 + textLine(r) + 2 * r.getLineHeight(UI_10_FONT_ID) + 2; }
 
 Layout computeLayout(const GfxRenderer& r) {
   Layout l;
   l.width = r.getScreenWidth();
   const int height = r.getScreenHeight();
   l.clockTop = TOP + ICON_BOX + CLOCK_GAP_ABOVE;
-  l.dateTop = l.clockTop + r.getLineHeight(DESK_CLOCK_FONT_ID) + 4;
-  l.coversTop = l.dateTop + r.getLineHeight(DESK_DATE_FONT_ID) + CLOCK_GAP_BELOW;
+  l.dateTop = l.clockTop + clockHeight(r) + 6;
+  l.coversTop = l.dateTop + dateLine(r) + CLOCK_GAP_BELOW;
   l.widgetsH = calendarHeight(r) + WIDGET_GAP + wordsHeight(r);
   l.widgetsTop = height - BOTTOM - l.widgetsH;
   const int tileW = (l.width - 2 * SIDE - 2 * COVER_GAP) / 3;
@@ -124,7 +131,7 @@ void drawClock(const GfxRenderer& r, const Layout& l, const struct tm* now) {
   } else {
     snprintf(clock, sizeof(clock), "%s", tr(STR_DESK_NO_CLOCK));
   }
-  centeredText(r, DESK_CLOCK_FONT_ID, 0, l.width, l.clockTop, clock);
+  centeredText(r, DESK_CLOCK_FONT_ID, 0, l.width, l.clockTop - clockSkip(r), clock);
   if (!now) return;
   char weekday[16];
   pipePart(tr(STR_DESK_WEEKDAYS), now->tm_wday, weekday, sizeof(weekday));
@@ -197,7 +204,7 @@ void drawCalendar(const GfxRenderer& r, int x, int y, int w, int h, const struct
   const uint32_t readMask = desk_stats::readDaysMask(year, month);
 
   const int cellW = (w - 2 * BOX_PAD) / 7;
-  const int cellH = line + 3;
+  const int cellH = calRow(r);
   const int gridX = x + BOX_PAD + (w - 2 * BOX_PAD - 7 * cellW) / 2;
   int rowY = y + BOX_PAD + line;
   char label[8];
@@ -297,13 +304,24 @@ void drawWordOfDay(const GfxRenderer& r, int x, int y, int w, int h, const struc
   const int wordY = y + BOX_PAD + line + 4;
   const std::string shownWord = r.truncatedText(UI_12_FONT_ID, word.c_str(), w - 2 * BOX_PAD);
   centeredText(r, UI_12_FONT_ID, x, w, wordY, shownWord.c_str());
-  if (meaning.empty()) return;
-  const auto lines = r.wrappedText(UI_10_FONT_ID, meaning.c_str(), w - 2 * BOX_PAD, 2);
+  // EJDict marks key senses with 『』; they read as noise in one line.
+  std::string plain;
+  plain.reserve(meaning.size());
+  for (size_t i = 0; i < meaning.size(); ++i) {
+    if (meaning.compare(i, 3, "\xE3\x80\x8E") == 0 || meaning.compare(i, 3, "\xE3\x80\x8F") == 0) {
+      i += 2;
+      continue;
+    }
+    plain.push_back(meaning[i]);
+  }
+  if (plain.empty()) return;
+  const int lh = r.getLineHeight(UI_10_FONT_ID);
   int my = wordY + r.getLineHeight(UI_12_FONT_ID) + 2;
+  const int maxLines = std::max(1, (y + h - BOX_PAD - my) / lh);
+  const auto lines = r.wrappedText(UI_10_FONT_ID, plain.c_str(), w - 2 * BOX_PAD, maxLines);
   for (const auto& text : lines) {
-    if (my + r.getLineHeight(UI_10_FONT_ID) > y + h - 2) break;
     centeredText(r, UI_10_FONT_ID, x, w, my, text.c_str());
-    my += r.getLineHeight(UI_10_FONT_ID);
+    my += lh;
   }
 }
 

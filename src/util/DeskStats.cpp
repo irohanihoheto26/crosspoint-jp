@@ -18,7 +18,7 @@ namespace {
 
 constexpr char DAYS_PATH[] = "/.crosspoint/desk_days.txt";
 constexpr char LOOKUPS_PATH[] = "/.crosspoint/desk_words.txt";
-constexpr char WOTD_PATH[] = "/.crosspoint/desk_wotd.txt";
+constexpr char WOTD_PATH[] = "/.crosspoint/desk_wotd2.txt";
 // A few years of "YYYYMM HHHHHHHH\n" lines; older months are dropped on write.
 constexpr int MAX_DAY_LINES = 36;
 constexpr size_t DAYS_BUF = MAX_DAY_LINES * 16 + 1;
@@ -53,7 +53,10 @@ void firstPlainLine(const std::string& def, std::string& out, size_t cap) {
   out.clear();
   bool inTag = false;
   bool started = false;
-  for (size_t i = 0; i < def.size(); ++i) {
+  // HTML entries open with a part-of-speech heading and the headword; the
+  // meaning starts at the first list item.
+  const size_t firstItem = def.find("<li>");
+  for (size_t i = firstItem == std::string::npos ? 0 : firstItem; i < def.size(); ++i) {
     const char c = def[i];
     if (c == '<') {
       inTag = true;
