@@ -53,9 +53,24 @@ jobs:
           pio run -e gh_release | tee pio.log
           grep -E "RAM:|Flash:" pio.log >> "$GITHUB_STEP_SUMMARY" || true
 
+      - name: Make full flash image (bootloader + partitions + app)
+        run: |
+          set -euo pipefail
+          B=.pio/build/gh_release
+          BOOTAPP=$(find ~/.platformio/packages/framework-arduinoespressif32* -name boot_app0.bin | head -1)
+          mkdir -p out
+          cp $B/firmware.bin out/firmware.bin
+          python -m esptool --chip esp32c3 merge-bin -o out/firmware-full-16MB.bin \
+            --flash-mode dio --flash-size 16MB \
+            0x0 $B/bootloader.bin 0x8000 $B/partitions.bin 0xe000 "$BOOTAPP" 0x10000 $B/firmware.bin \
+          || ~/.platformio/penv/bin/python -m esptool --chip esp32c3 merge_bin -o out/firmware-full-16MB.bin \
+            --flash_mode dio --flash_size 16MB \
+            0x0 $B/bootloader.bin 0x8000 $B/partitions.bin 0xe000 "$BOOTAPP" 0x10000 $B/firmware.bin
+          ls -l out
+
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v6
         with:
           name: firmware-x3
-          path: .pio/build/gh_release/firmware.bin
+          path: out/
           if-no-files-found: error
