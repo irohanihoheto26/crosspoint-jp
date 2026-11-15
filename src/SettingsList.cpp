@@ -100,6 +100,8 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
            .withTextSettings());
   emit(SettingInfo::Toggle(StrId::STR_BATTERY_TOP_RIGHT, &CrossPointSettings::statusBarBatteryTop,
                            "statusBarBatteryTop", StrId::STR_CAT_READER));
+  emit(SettingInfo::Toggle(StrId::STR_CLOCK_TOP_LEFT, &CrossPointSettings::statusBarClockTop, "statusBarClockTop",
+                           StrId::STR_CAT_READER));
   emit(SettingInfo::Enum(StrId::STR_PARA_ALIGNMENT, &CrossPointSettings::paragraphAlignment,
                          {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
                           StrId::STR_BOOK_S_STYLE},

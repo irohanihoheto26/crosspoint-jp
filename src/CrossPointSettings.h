@@ -346,6 +346,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t verticalMargin = 10;
   // Reader battery in the top-right corner instead of the bottom status bar.
   uint8_t statusBarBatteryTop = 0;
+  // Reader clock in the top-left corner instead of the bottom status bar.
+  uint8_t statusBarClockTop = 0;
   // OPDS download destination folder ("" = SD root). Global; edited from the
   // OPDS server list. Persisted via a category-less SettingInfo::String in
   // SettingsList.h, so it stays out of the on-device Settings screen.

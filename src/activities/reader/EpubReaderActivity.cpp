@@ -65,7 +65,7 @@
 // the band for the top-right battery when it is enabled.
 static int readerTopInset(const GfxRenderer& renderer) {
   int inset = SETTINGS.screenMargin + SETTINGS.verticalMargin;
-  if (SETTINGS.statusBarBatteryTop) inset += renderer.getLineHeight(SMALL_FONT_ID) + 4;
+  if (SETTINGS.statusBarBatteryTop || SETTINGS.statusBarClockTop) inset += renderer.getLineHeight(SMALL_FONT_ID) + 4;
   return inset;
 }
 

@@ -882,6 +882,16 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   // Draw Battery
   const bool showBatteryPercentage = sb.showBatteryPercent;
 
+  if (SETTINGS.statusBarClockTop && halClock.isAvailable()) {
+    // Top-left corner, in the same reserved band as the top battery.
+    char topClock[12];
+    if (halClock.formatTime(topClock, sizeof(topClock), sb.clock12h)) {
+      const int topLeftX = metrics.statusBarHorizontalMargin +
+                           std::max<int>(orientedMarginLeft, BoardConfig::ACTIVE.cornerRadius) + 1;
+      renderer.drawText(SMALL_FONT_ID, topLeftX, orientedMarginTop + 2, topClock);
+    }
+  }
+
   if (SETTINGS.statusBarBatteryTop) {
     // Top-right corner, above the text (the reader reserves this band).
     int topWidth = metrics.batteryWidth;
