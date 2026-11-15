@@ -37,6 +37,7 @@ class TextSettingsActivity final : public UiTabListActivity {
     ParaIndentation,
     Alignment,
     ScreenMargin,
+    VerticalMargin,
     Count
   };
   enum class StyleRow { FocusReading, Hyphenation, EmbeddedStyle, AntiAliasing, Count };

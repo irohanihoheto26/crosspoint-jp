@@ -27,7 +27,8 @@ constexpr StrId TAB_NAME_IDS[] = {StrId::STR_FONT, StrId::STR_SIZE, StrId::STR_L
 
 constexpr StrId LAYOUT_ROW_NAME_IDS[] = {
     StrId::STR_LINE_SPACING,          StrId::STR_WORD_SPACING, StrId::STR_CHARACTER_SPACING, StrId::STR_EXTRA_SPACING,
-    StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,    StrId::STR_SCREEN_MARGIN};
+    StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,    StrId::STR_SCREEN_MARGIN,
+    StrId::STR_VERTICAL_MARGIN};
 constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION_NO_PREVIEW,
                                         StrId::STR_EMBEDDED_STYLE_NO_PREVIEW, StrId::STR_TEXT_AA_NO_PREVIEW};
 
@@ -448,6 +449,21 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
       requestUpdate();
       break;
     }
+    case LayoutRow::VerticalMargin: {
+      constexpr int VMIN = CrossPointSettings::VERTICAL_MARGIN_MIN;
+      constexpr int VMAX = CrossPointSettings::VERTICAL_MARGIN_MAX;
+      constexpr int VSTEP = CrossPointSettings::VERTICAL_MARGIN_STEP;
+      std::vector<std::string> options;
+      options.reserve((VMAX - VMIN) / VSTEP + 1);
+      for (int m = VMIN; m <= VMAX; m += VSTEP) options.push_back(std::to_string(m));
+      const int cur = (std::clamp<int>(SETTINGS.verticalMargin, VMIN, VMAX) - VMIN) / VSTEP;
+      optionPopup_.show(StrId::STR_VERTICAL_MARGIN, options, cur, [](int idx) {
+        SETTINGS.verticalMargin = static_cast<uint8_t>(VMIN + idx * VSTEP);
+        SETTINGS.saveToFile();
+      });
+      requestUpdate();
+      break;
+    }
 
     default:
       break;
@@ -477,6 +493,8 @@ std::string TextSettingsActivity::layoutValueText(int row) const {
     }
     case LayoutRow::ScreenMargin:
       return std::to_string(SETTINGS.screenMargin);
+    case LayoutRow::VerticalMargin:
+      return std::to_string(SETTINGS.verticalMargin);
 
     default:
       return "";
