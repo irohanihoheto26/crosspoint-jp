@@ -338,6 +338,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint8_t SCREEN_MARGIN_MAX = 40;
   static constexpr uint8_t SCREEN_MARGIN_STEP = 5;
   uint8_t screenMargin = SCREEN_MARGIN_MIN;
+  // Extra reader space above and below the text (on top of screenMargin, and
+  // always between the text and the status bar).
+  static constexpr uint8_t VERTICAL_MARGIN_MIN = 0;
+  static constexpr uint8_t VERTICAL_MARGIN_MAX = 40;
+  static constexpr uint8_t VERTICAL_MARGIN_STEP = 5;
+  uint8_t verticalMargin = 10;
+  // Reader battery in the top-right corner instead of the bottom status bar.
+  uint8_t statusBarBatteryTop = 0;
   // OPDS download destination folder ("" = SD root). Global; edited from the
   // OPDS server list. Persisted via a category-less SettingInfo::String in
   // SettingsList.h, so it stays out of the on-device Settings screen.
