@@ -890,7 +890,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
       topWidth +=
           batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, (std::to_string(percentage) + "%").c_str());
     }
-    const int topCorner = std::max(orientedMarginRight, BoardConfig::ACTIVE.cornerRadius);
+    const int topCorner = std::max<int>(orientedMarginRight, BoardConfig::ACTIVE.cornerRadius);
     const int topX = renderer.getScreenWidth() - metrics.statusBarHorizontalMargin - topCorner - topWidth;
     GUI.drawBatteryLeft(renderer, Rect{topX, orientedMarginTop + 2, metrics.batteryWidth, metrics.batteryHeight},
                         showBatteryPercentage);
