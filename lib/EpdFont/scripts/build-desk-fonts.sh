@@ -17,3 +17,8 @@ PY
 )
 python fontconvert.py desktext_11 11 "$SRC" --only-intervals $CPS > ../builtinFonts/desktext_11.h
 python fontconvert.py desktext_15 15 "$SRC" --only-intervals $CPS > ../builtinFonts/desktext_15.h
+# Word-of-the-day pronunciation: Noto Sans (SIL OFL) with ASCII + IPA ranges.
+python fontconvert.py deskipa_10 10 ../builtinFonts/source/NotoSans/NotoSans-Regular.ttf --only-intervals \
+  --additional-intervals 0x20,0x7E --additional-intervals 0xA0,0x17F --additional-intervals 0x250,0x2FF \
+  --additional-intervals 0x300,0x36F --additional-intervals 0x3B8,0x3B8 --additional-intervals 0x1D00,0x1DBF \
+  > ../builtinFonts/deskipa_10.h

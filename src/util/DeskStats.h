@@ -37,6 +37,6 @@ void loadLookups(Lookups& out);
 // in the recent box), else a random headword of `dictName`. Picks once per day
 // and caches the word plus a one-line meaning; later calls that day just read
 // the cache. False when there is nothing to show.
-bool wordOfDay(uint32_t yyyymmdd, const char* dictName, std::string& word, std::string& meaning);
+bool wordOfDay(uint32_t yyyymmdd, const char* dictName, std::string& word, std::string& ipa, std::string& meaning);
 
 }  // namespace desk_stats

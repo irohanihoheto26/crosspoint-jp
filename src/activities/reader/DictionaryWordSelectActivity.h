@@ -41,6 +41,7 @@ class DictionaryWordSelectActivity final : public Activity {
   std::string lookupText;
   bool lookupPending = false;
   Dictionary dict;
+  bool useJapaneseDict = false;
   bool dictOpenAttempted = false;
   bool dictOpenOk = false;
   bool dictNeedsIndex = false;

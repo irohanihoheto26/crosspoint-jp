@@ -3112,6 +3112,8 @@ std::string EpubReaderActivity::moreRowValue(int row) const {
   switch (moreItems[row].action) {
     case MA::ROTATE_SCREEN:
       return I18N.get(kOrient[SETTINGS.orientation % CrossPointSettings::ORIENTATION_COUNT]);
+    case MA::SELECT_DICTIONARY:
+      return SETTINGS.dictionaryName;
     case MA::AUTO_PAGE_TURN:
       return (autoTurnOption == 0 || autoTurnOption >= static_cast<int>(std::size(PAGE_TURN_RATES)))
                  ? std::string(tr(STR_STATE_OFF))
@@ -3154,6 +3156,16 @@ void EpubReaderActivity::activateMoreRow(int row) {
       overlayPopup.show(StrId::STR_AUTO_TURN_PAGES_PER_MIN, labels, autoTurnOption, [this](int idx) {
         autoTurnOption = idx;
         toggleAutoPageTurn(static_cast<uint8_t>(idx));
+      });
+      paintOverlayPopup();
+      return;
+    }
+    case MA::SELECT_DICTIONARY: {
+      auto names = EpubReaderMenuActivity::dictionaryFolderNames();
+      const int current = EpubReaderMenuActivity::currentDictionaryIndex(names);
+      overlayPopup.show(StrId::STR_DICTIONARY, names, current, [this, names](int idx) {
+        EpubReaderMenuActivity::selectDictionary(names, idx);
+        requestUpdate();
       });
       paintOverlayPopup();
       return;

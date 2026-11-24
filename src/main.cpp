@@ -126,6 +126,8 @@ EpdFont deskTextFont(&desktext_11);
 EpdFontFamily deskTextFontFamily(11, &deskTextFont);
 EpdFont deskDateFont(&desktext_15);
 EpdFontFamily deskDateFontFamily(15, &deskDateFont);
+EpdFont deskIpaFont(&deskipa_10);
+EpdFontFamily deskIpaFontFamily(10, &deskIpaFont);
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
@@ -566,6 +568,7 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(DESK_CLOCK_FONT_ID, deskClockFontFamily);
   renderer.insertFont(DESK_TEXT_FONT_ID, deskTextFontFamily);
   renderer.insertFont(DESK_DATE_FONT_ID, deskDateFontFamily);
+  renderer.insertFont(DESK_IPA_FONT_ID, deskIpaFontFamily);
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);

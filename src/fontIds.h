@@ -12,6 +12,8 @@
 #define DESK_CLOCK_FONT_ID (1145130307)
 #define DESK_TEXT_FONT_ID (1145130324)
 #define DESK_DATE_FONT_ID (1145130308)
+// Word-of-the-day IPA (Noto Sans subset)
+#define DESK_IPA_FONT_ID (1145130329)
 
 // Font ID 0 is reserved as the "not found" sentinel.
 // Guard against any hash accidentally producing 0.

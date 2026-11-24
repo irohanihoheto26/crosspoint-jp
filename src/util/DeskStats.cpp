@@ -4,26 +4,30 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <memory>
 #include <new>
+#include <vector>
 
 #include "Dictionary.h"
+#include "DictionaryRegistry.h"
 
 namespace desk_stats {
 namespace {
 
 constexpr char DAYS_PATH[] = "/.crosspoint/desk_days.txt";
 constexpr char LOOKUPS_PATH[] = "/.crosspoint/desk_words.txt";
-constexpr char WOTD_PATH[] = "/.crosspoint/desk_wotd3.txt";
+constexpr char WOTD_PATH[] = "/.crosspoint/desk_wotd4.txt";
 // A few years of "YYYYMM HHHHHHHH\n" lines; older months are dropped on write.
 constexpr int MAX_DAY_LINES = 36;
 constexpr size_t DAYS_BUF = MAX_DAY_LINES * 16 + 1;
 constexpr size_t LOOKUPS_CAP = MAX_LOOKUPS * MAX_WORD_BYTES + 16;
 constexpr size_t MEANING_MAX_BYTES = 90;
+constexpr size_t IPA_MAX_BYTES = 48;
 
 struct DayLine {
   uint32_t yyyymm;
@@ -46,6 +50,8 @@ int parseDays(const char* text, DayLine* out, int max) {
   }
   return n;
 }
+
+void trimPartialUtf8(std::string& s);
 
 // Copies the first line of plain text from a (possibly HTML) definition,
 // skipping tags, capped at `cap` bytes on a UTF-8 boundary.
@@ -80,9 +86,32 @@ void firstPlainLine(const std::string& def, std::string& out, size_t cap) {
     out.push_back(c);
     if (out.size() >= cap) break;
   }
-  // Trim a split multi-byte sequence.
-  while (!out.empty() && (static_cast<uint8_t>(out.back()) & 0xC0) == 0x80) out.pop_back();
-  if (!out.empty() && (static_cast<uint8_t>(out.back()) & 0x80)) out.pop_back();
+  trimPartialUtf8(out);
+}
+
+// Drops a trailing UTF-8 sequence only when the byte cap cut it short.
+void trimPartialUtf8(std::string& s) {
+  size_t start = s.size();
+  while (start > 0 && (static_cast<uint8_t>(s[start - 1]) & 0xC0) == 0x80) --start;
+  if (start == 0) return;
+  const uint8_t lead = static_cast<uint8_t>(s[start - 1]);
+  size_t need = 1;
+  if ((lead & 0xE0) == 0xC0) need = 2;
+  else if ((lead & 0xF0) == 0xE0) need = 3;
+  else if ((lead & 0xF8) == 0xF0) need = 4;
+  if (s.size() - (start - 1) < need) s.erase(start - 1);
+}
+
+// First "IPA: /.../" pronunciation in a Wiktionary-style definition.
+std::string extractIpa(const std::string& def) {
+  const size_t at = def.find("IPA: ");
+  if (at == std::string::npos) return "";
+  const size_t from = at + 5;
+  size_t end = def.find_first_of("<,\n", from);
+  if (end == std::string::npos) end = def.size();
+  std::string ipa = def.substr(from, std::min(end - from, IPA_MAX_BYTES));
+  trimPartialUtf8(ipa);
+  return ipa;
 }
 
 }  // namespace
@@ -204,12 +233,34 @@ void addLookup(const char* word) {
   if (!Storage.writeFile(LOOKUPS_PATH, out)) LOG_ERR("DESK", "Failed to save lookups");
 }
 
-bool wordOfDay(const uint32_t yyyymmdd, const char* dictName, std::string& word, std::string& meaning) {
+namespace {
+// Pronunciation from the first other indexed dictionary that has one
+// (e.g. Wiktionary English), since EJDict carries none.
+std::string ipaFromOtherDictionaries(const std::string& word, const char* skipName) {
+  std::vector<DictionaryEntry> dicts;
+  DictionaryRegistry::discover(dicts);
+  for (const auto& entry : dicts) {
+    if (entry.name == skipName) continue;
+    auto dict = std::unique_ptr<Dictionary>(new (std::nothrow) Dictionary());
+    if (!dict || !dict->open(entry.name.c_str()) || dict->needsIndex()) continue;
+    std::string definition;
+    std::string headword;
+    if (!dict->lookup(word.c_str(), definition, headword)) continue;
+    std::string ipa = extractIpa(definition);
+    if (!ipa.empty()) return ipa;
+  }
+  return "";
+}
+}  // namespace
+
+bool wordOfDay(const uint32_t yyyymmdd, const char* dictName, std::string& word, std::string& ipa,
+               std::string& meaning) {
   word.clear();
+  ipa.clear();
   meaning.clear();
   if (!dictName) dictName = "";
 
-  // Cache line: "<yyyymmdd>\t<dict>\t<word>\t<meaning>"
+  // Cache line: "<yyyymmdd>\t<dict>\t<word>\t<ipa>\t<meaning>"
   std::string cache;
   if (Storage.readFileToString("DESK", WOTD_PATH, 512, cache)) {
     char prefix[24];
@@ -218,9 +269,11 @@ bool wordOfDay(const uint32_t yyyymmdd, const char* dictName, std::string& word,
     if (cache.rfind(prefix, 0) == 0 && dictEnd != std::string::npos &&
         cache.compare(strlen(prefix), dictEnd - strlen(prefix), dictName) == 0) {
       const size_t wordEnd = cache.find('\t', dictEnd + 1);
-      if (wordEnd != std::string::npos) {
+      const size_t ipaEnd = wordEnd == std::string::npos ? wordEnd : cache.find('\t', wordEnd + 1);
+      if (ipaEnd != std::string::npos) {
         word = cache.substr(dictEnd + 1, wordEnd - dictEnd - 1);
-        meaning = cache.substr(wordEnd + 1);
+        ipa = cache.substr(wordEnd + 1, ipaEnd - wordEnd - 1);
+        meaning = cache.substr(ipaEnd + 1);
         while (!meaning.empty() && (meaning.back() == '\n' || meaning.back() == '\r')) meaning.pop_back();
         return !word.empty();
       }
@@ -260,7 +313,9 @@ bool wordOfDay(const uint32_t yyyymmdd, const char* dictName, std::string& word,
   }
   dict.reset();
   firstPlainLine(definition, meaning, MEANING_MAX_BYTES);
+  ipa = extractIpa(definition);
   std::string().swap(definition);
+  if (ipa.empty()) ipa = ipaFromOtherDictionaries(word, dictName);
 
   String out;
   char prefix[24];
@@ -269,6 +324,8 @@ bool wordOfDay(const uint32_t yyyymmdd, const char* dictName, std::string& word,
   out += dictName;
   out += '\t';
   out += word.c_str();
+  out += '\t';
+  out += ipa.c_str();
   out += '\t';
   out += meaning.c_str();
   out += '\n';

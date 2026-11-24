@@ -1,5 +1,9 @@
 #include "EpubReaderMenuActivity.h"
 
+#include <cstring>
+
+#include "util/DictionaryRegistry.h"
+
 #include <BlePageTurner.h>
 #include <GfxRenderer.h>
 #include <HalFrontlight.h>
@@ -89,6 +93,9 @@ void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, const 
   if (SETTINGS.dictionaryName[0] != '\0') {
     items.push_back({MenuAction::DICTIONARY, StrId::STR_LOOKUP});
   }
+  if (dictionaryFolderNames().size() > 1) {
+    items.push_back({MenuAction::SELECT_DICTIONARY, StrId::STR_DICTIONARY});
+  }
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
   items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
@@ -104,6 +111,29 @@ void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, const 
   }
   items.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
   items.push_back({MenuAction::TEXT_SETTINGS, StrId::STR_TEXT_SETTINGS});
+}
+
+std::vector<std::string> EpubReaderMenuActivity::dictionaryFolderNames() {
+  std::vector<DictionaryEntry> found;
+  DictionaryRegistry::discover(found);
+  std::vector<std::string> names;
+  names.reserve(found.size());
+  for (auto& d : found) names.push_back(std::move(d.name));
+  return names;
+}
+
+int EpubReaderMenuActivity::currentDictionaryIndex(const std::vector<std::string>& names) {
+  for (size_t i = 0; i < names.size(); ++i) {
+    if (names[i] == SETTINGS.dictionaryName) return static_cast<int>(i);
+  }
+  return 0;
+}
+
+void EpubReaderMenuActivity::selectDictionary(const std::vector<std::string>& names, int index) {
+  if (index < 0 || index >= static_cast<int>(names.size())) return;
+  strncpy(SETTINGS.dictionaryName, names[index].c_str(), sizeof(SETTINGS.dictionaryName) - 1);
+  SETTINGS.dictionaryName[sizeof(SETTINGS.dictionaryName) - 1] = '\0';
+  SETTINGS.saveToFile();
 }
 
 void EpubReaderMenuActivity::toggleBluetooth() {
@@ -157,6 +187,16 @@ void EpubReaderMenuActivity::activateIndex(const int index) {
                        selectedPageTurnOption = idx;
                        requestUpdate();
                      });
+    requestUpdate();
+    return;
+  }
+
+  if (selectedAction == MenuAction::SELECT_DICTIONARY) {
+    dictionaryNames = dictionaryFolderNames();
+    optionPopup.show(StrId::STR_DICTIONARY, dictionaryNames, currentDictionaryIndex(dictionaryNames), [this](int idx) {
+      selectDictionary(dictionaryNames, idx);
+      requestUpdate();
+    });
     requestUpdate();
     return;
   }
@@ -234,6 +274,8 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
       menuRowItems[i].value = I18N.get(orientationLabels[pendingOrientation]);
     } else if (action == MenuAction::AUTO_PAGE_TURN) {
       menuRowItems[i].value = pageTurnLabels[selectedPageTurnOption];
+    } else if (action == MenuAction::SELECT_DICTIONARY) {
+      menuRowItems[i].value = SETTINGS.dictionaryName;
     } else if (action == MenuAction::NIGHT_MODE) {
       GUI.setCheckboxRow(menuRowItems[i], SETTINGS.screenInverted);
     } else if (action == MenuAction::BLUETOOTH) {

@@ -59,7 +59,9 @@ int clockSkip(const GfxRenderer& r) { return r.getFontAscenderSize(DESK_CLOCK_FO
 int clockHeight(const GfxRenderer& r) { return r.getFontAscenderSize(DESK_CLOCK_FONT_ID) * 72 / 100; }
 
 // Calendar: title + weekday row + 6 week rows.
-int calRow(const GfxRenderer& r) { return r.getFontAscenderSize(DESK_TEXT_FONT_ID); }
+// Rows leave room under the digits so a read day's black cell covers them fully.
+constexpr int CAL_ROW_EXTRA = 5;
+int calRow(const GfxRenderer& r) { return r.getFontAscenderSize(DESK_TEXT_FONT_ID) + CAL_ROW_EXTRA; }
 int calendarHeight(const GfxRenderer& r) { return BOX_PAD * 2 + textLine(r) + 7 * calRow(r); }
 // Recent lookups: title + two rows of words.
 int wordsHeight(const GfxRenderer& r) { return BOX_PAD * 2 + textLine(r) + 2 * r.getLineHeight(UI_10_FONT_ID) + 2; }
@@ -219,9 +221,9 @@ void drawCalendar(const GfxRenderer& r, int x, int y, int w, int h, const struct
     const int cy = rowY + (slot / 7) * cellH;
     snprintf(label, sizeof(label), "%d", day);
     const bool read = (readMask >> (day - 1)) & 1u;
-    if (read) r.fillRect(cx + 1, cy - 1, cellW - 2, cellH - 1, true);
+    if (read) r.fillRect(cx + 1, cy - 2, cellW - 2, cellH - 1, true);
     centeredText(r, DESK_TEXT_FONT_ID, cx, cellW, cy, label, !read);
-    if (day == now->tm_mday) r.drawRect(cx, cy - 2, cellW, cellH + 1, 2, true);
+    if (day == now->tm_mday) r.drawRect(cx, cy - 3, cellW, cellH + 1, 2, true);
   }
 }
 
@@ -294,17 +296,25 @@ void drawWordOfDay(const GfxRenderer& r, int x, int y, int w, int h, const struc
   const int line = textLine(r);
   centeredText(r, DESK_TEXT_FONT_ID, x, w, y + BOX_PAD, tr(STR_DESK_WORD_OF_DAY));
   std::string word;
+  std::string ipa;
   std::string meaning;
   const uint32_t ymd =
       now ? static_cast<uint32_t>((now->tm_year + 1900) * 10000 + (now->tm_mon + 1) * 100 + now->tm_mday) : 0;
-  if (!now || !desk_stats::wordOfDay(ymd, SETTINGS.dictionaryName, word, meaning)) {
+  if (!now || !desk_stats::wordOfDay(ymd, SETTINGS.dictionaryName, word, ipa, meaning)) {
     centeredText(r, DESK_TEXT_FONT_ID, x, w, y + h / 2 - line / 2, tr(STR_DESK_NO_DICTIONARY));
     return;
   }
   const int wordY = y + BOX_PAD + line + 4;
   const std::string shownWord = r.truncatedText(UI_12_FONT_ID, word.c_str(), w - 2 * BOX_PAD);
   centeredText(r, UI_12_FONT_ID, x, w, wordY, shownWord.c_str());
-  // EJDict marks key senses with 『』; they read as noise in one line.
+  int my = wordY + r.getLineHeight(UI_12_FONT_ID) + 2;
+  if (!ipa.empty()) {
+    const std::string shownIpa = r.truncatedText(DESK_IPA_FONT_ID, ipa.c_str(), w - 2 * BOX_PAD);
+    centeredText(r, DESK_IPA_FONT_ID, x, w, my, shownIpa.c_str());
+    my += r.getLineHeight(DESK_IPA_FONT_ID);
+  }
+  // EJDict marks key senses with 『』 and countability with 〈C〉/〈U〉; both
+  // read as noise in a short line.
   std::string plain;
   plain.reserve(meaning.size());
   for (size_t i = 0; i < meaning.size(); ++i) {
@@ -312,11 +322,17 @@ void drawWordOfDay(const GfxRenderer& r, int x, int y, int w, int h, const struc
       i += 2;
       continue;
     }
+    if (meaning.compare(i, 3, "\xE3\x80\x88") == 0) {  // 〈 ... 〉
+      const size_t close = meaning.find("\xE3\x80\x89", i + 3);
+      if (close != std::string::npos && close - i <= 9) {
+        i = close + 2;
+        continue;
+      }
+    }
     plain.push_back(meaning[i]);
   }
   if (plain.empty()) return;
   const int lh = r.getLineHeight(UI_10_FONT_ID);
-  int my = wordY + r.getLineHeight(UI_12_FONT_ID) + 2;
   const int maxLines = std::max(1, (y + h - BOX_PAD - my) / lh);
   const auto lines = r.wrappedText(UI_10_FONT_ID, plain.c_str(), w - 2 * BOX_PAD, maxLines);
   for (const auto& text : lines) {

@@ -24,3 +24,4 @@
 #include <builtinFonts/deskclock_56.h>
 #include <builtinFonts/desktext_11.h>
 #include <builtinFonts/desktext_15.h>
+#include <builtinFonts/deskipa_10.h>

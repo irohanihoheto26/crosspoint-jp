@@ -10,6 +10,7 @@
 
 #include "CrossPointSettings.h"
 #include "DictionaryDefinitionActivity.h"
+#include "util/DictionaryRegistry.h"
 #include "components/UITheme.h"
 
 namespace {
@@ -17,6 +18,18 @@ namespace {
 constexpr unsigned long POPUP_DURATION_MS = 1500;
 
 void indexBuildYield(void*) { vTaskDelay(1); }
+
+// Japanese selections go to the Japanese Wikipedia dictionary when present.
+constexpr char JA_DICT_FOLDER[] = "JaWiki";
+
+bool hasJapanese(const std::string& text) {
+  for (size_t i = 0; i + 2 < text.size(); ++i) {
+    const auto b0 = static_cast<uint8_t>(text[i]);
+    // U+3040..U+9FFF (kana, CJK ideographs) all start with lead byte 0xE3..0xE9.
+    if (b0 >= 0xE3 && b0 <= 0xE9) return true;
+  }
+  return false;
+}
 
 }  // namespace
 
@@ -37,7 +50,9 @@ void DictionaryWordSelectActivity::performLookup() {
   }
   if (!dictOpenAttempted) {
     dictOpenAttempted = true;
-    dictOpenOk = dict.open(SETTINGS.dictionaryName);
+    std::string jaPath;
+    useJapaneseDict = hasJapanese(lookupText) && DictionaryRegistry::resolveBasePath(JA_DICT_FOLDER, jaPath);
+    dictOpenOk = dict.open(useJapaneseDict ? JA_DICT_FOLDER : SETTINGS.dictionaryName);
     // needsIndex() opens and validates the .qidx sidecar, so ask it once per
     // open rather than once per word: the answer only changes when we build
     // the sidecar ourselves, which is handled below.
@@ -62,7 +77,7 @@ void DictionaryWordSelectActivity::performLookup() {
   const bool found = ok && dict.lookup(lookupText.c_str(), definition, headword, &result);
 
   if (found) {
-    desk_stats::addLookup(headword.c_str());
+    if (!useJapaneseDict) desk_stats::addLookup(headword.c_str());
     {
       RenderLock lock;
       popup = Popup::None;

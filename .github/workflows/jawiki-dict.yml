@@ -1,0 +1,40 @@
+name: Build JaWiki dictionary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['haru/**']
+    paths: ['scripts/build_jawiki_dict.py', '.github/workflows/jawiki-dict.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install tools
+        run: pip install pyarrow huggingface_hub
+
+      - name: Build dictionary
+        run: |
+          set -euo pipefail
+          python scripts/build_jawiki_dict.py out/JaWiki
+          python scripts/build_dict_sidecars.py out/JaWiki/JaWiki
+          ls -l out/JaWiki
+          cd out && zip -r -0 JaWiki.zip JaWiki
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete jawiki-dict --yes --cleanup-tag || true
+          gh release create jawiki-dict out/JaWiki.zip --title "JaWiki dictionary" \
+            --notes "Japanese Wikipedia lead sentences for /dictionaries/JaWiki/ (CC BY-SA 4.0)." --latest=false
